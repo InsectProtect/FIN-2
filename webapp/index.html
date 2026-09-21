@@ -254,6 +254,8 @@
         <div class="kpi"><div class="label">Внесено в таблицу</div><div class="value" id="bankTotalSheet">—</div></div>
       </div>
       <p class="forecast-note" id="bankDiffNote"></p>
+      <button type="button" id="bankAddBtn" class="primary" style="margin-top:10px;">Добавить эту сумму в «Расходы» (одной записью)</button>
+      <div class="status" id="bankAddStatus"></div>
     </div>
     <div class="card" id="bankListCard" style="display:none;">
       <h3>Операции из выписки (расходы)</h3>
@@ -720,7 +722,42 @@
       .finally(function(){ btn.disabled = false; });
   });
 
+  var lastBankData = null;
+
+  document.getElementById('bankAddBtn').addEventListener('click', function(){
+    if (!lastBankData || !lastBankData.period_to) return;
+    var btn = this;
+    var status = document.getElementById('bankAddStatus');
+    btn.disabled = true;
+    status.textContent = 'Добавляем...'; status.className = 'status';
+
+    var fd = new FormData();
+    fd.append('init_data', initData);
+    fd.append('pin', pin);
+    fd.append('date', toISODate(lastBankData.period_to));
+    fd.append('period_from', lastBankData.period_from);
+    fd.append('period_to', lastBankData.period_to);
+    fd.append('amount', lastBankData.total_expenses);
+
+    fetch('/api/bank_statement/apply', { method: 'POST', body: fd })
+      .then(function(r){ if (!r.ok) throw new Error(); return r.json(); })
+      .then(function(){
+        status.textContent = 'Готово — сумма учтена в общих расходах за этот месяц. Если загрузите ту же выписку ещё раз, запись обновится, а не задвоится. Найти её можно во вкладке «История».';
+        status.className = 'status ok';
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        loadSummary();
+        loadHistory();
+      })
+      .catch(function(){
+        status.textContent = 'Не удалось добавить. Попробуйте ещё раз.'; status.className = 'status err';
+        btn.disabled = false;
+      });
+  });
+
   function renderBankResult(data){
+    lastBankData = data;
+    document.getElementById('bankAddBtn').disabled = false;
+    document.getElementById('bankAddStatus').textContent = '';
     var title = document.getElementById('bankPeriodTitle');
     title.textContent = (data.period_from && data.period_to)
       ? 'Период: ' + data.period_from + ' — ' + data.period_to
