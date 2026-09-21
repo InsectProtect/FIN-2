@@ -10,7 +10,10 @@ from collections import defaultdict
 import gspread
 from google.oauth2.service_account import Credentials
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly",
+]]
 
 MONTH_SHEETS = ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai",
                 "Iunie", "Iulie", "August ", "Septembrie", "Octombrie",
