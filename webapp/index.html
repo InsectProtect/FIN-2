@@ -66,6 +66,9 @@
     background:var(--bg);color:var(--ink);font-size:15px;font-family:inherit;
   }
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  input[type=file]{padding:10px 14px;font-size:13px;}
+  .receipt-preview{margin-top:8px;font-size:12px;color:var(--ink-2);}
+  .receipt-preview img{display:block;max-width:120px;max-height:120px;border-radius:10px;margin-top:6px;}
   button.primary{
     width:100%;margin-top:22px;padding:14px;border:none;border-radius:14px;
     background:var(--accent);color:var(--accent-ink);font-size:16px;font-weight:650;
@@ -180,11 +183,9 @@
       <input type="number" id="f_rate" inputmode="decimal" placeholder="17.54">
     </div>
 
-    <label>Есть подтверждающий документ?</label>
-    <select id="f_doc">
-      <option>Да</option>
-      <option>Нет</option>
-    </select>
+    <label>Фото чека / фактуры (необязательно)</label>
+    <input type="file" id="f_receipt" accept="image/*,.pdf" capture="environment">
+    <div class="receipt-preview" id="receiptPreview"></div>
 
     <button class="primary" id="submitBtn">Добавить расход</button>
     <div class="status" id="status"></div>
@@ -329,33 +330,51 @@
     status.className = 'status ok';
   });
 
+  var receiptInput = document.getElementById('f_receipt');
+  receiptInput.addEventListener('change', function(){
+    var preview = document.getElementById('receiptPreview');
+    preview.innerHTML = '';
+    var file = receiptInput.files && receiptInput.files[0];
+    if (!file) return;
+    preview.textContent = file.name;
+    if (file.type && file.type.indexOf('image/') === 0) {
+      var img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      preview.appendChild(img);
+    }
+  });
+
   document.getElementById('submitBtn').addEventListener('click', function(){
     var btn = this, status = document.getElementById('status');
-    var payload = {
-      init_data: initData,
-      date: document.getElementById('f_date').value,
-      category: document.getElementById('f_category').value,
-      description: document.getElementById('f_desc').value,
-      account: document.getElementById('f_account').value,
-      currency: document.getElementById('f_currency').value,
-      amount: document.getElementById('f_amount').value,
-      rate: document.getElementById('f_rate').value || 1,
-      has_doc: document.getElementById('f_doc').value,
-    };
-    if (!payload.date || !payload.amount) {
+    var date = document.getElementById('f_date').value;
+    var amount = document.getElementById('f_amount').value;
+    if (!date || !amount) {
       status.textContent = 'Заполните дату и сумму.'; status.className = 'status err';
       return;
     }
+    var fd = new FormData();
+    fd.append('init_data', initData);
+    fd.append('date', date);
+    fd.append('category', document.getElementById('f_category').value);
+    fd.append('description', document.getElementById('f_desc').value);
+    fd.append('account', document.getElementById('f_account').value);
+    fd.append('currency', document.getElementById('f_currency').value);
+    fd.append('amount', amount);
+    fd.append('rate', document.getElementById('f_rate').value || 1);
+    var file = receiptInput.files && receiptInput.files[0];
+    if (file) fd.append('receipt', file, file.name);
+
     btn.disabled = true;
-    fetch('/api/expense', {
-      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
-    }).then(function(r){
+    status.textContent = 'Сохраняем...'; status.className = 'status';
+    fetch('/api/expense', { method: 'POST', body: fd }).then(function(r){
       if (!r.ok) throw new Error();
       return r.json();
     }).then(function(){
       status.textContent = 'Добавлено.'; status.className = 'status ok';
       document.getElementById('f_amount').value = '';
       document.getElementById('f_desc').value = '';
+      receiptInput.value = '';
+      document.getElementById('receiptPreview').innerHTML = '';
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
       loadSummary();
     }).catch(function(){
