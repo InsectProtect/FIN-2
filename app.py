@@ -1,185 +1,131 @@
 """
-Единый процесс: Telegram-бот (aiogram, polling) + веб-сервер (FastAPI),
-который отдаёт Mini App и обслуживает его API. Так проще всего задеплоить
-на бесплатный тариф Render/Railway одним сервисом.
+Сборка PDF-отчёта (выручка/расходы по месяцам) для кнопки «Скачать отчёт»
+в мини-приложении. Шрифт DejaVuSans нужен, потому что встроенные шрифты
+reportlab не умеют в кириллицу — файлы шрифта лежат в папке fonts/.
 """
-import asyncio
-import datetime
+import io
 import os
+import datetime
 
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart
-from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
-                            KeyboardButton, Message, ReplyKeyboardMarkup,
-                            WebAppInfo)
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
+                                 TableStyle)
 
-import auth
-import forecast
-import gsheets
-import report
-import users
+_FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+_FONT_REGISTERED = False
 
-load_dotenv()
-
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-ADMIN_ID = int(os.environ["ADMIN_ID"])
-WEBAPP_URL = os.environ["WEBAPP_URL"]
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-app = FastAPI()
-app.mount("/app", StaticFiles(directory="webapp", html=True), name="webapp")
+MONTH_RU_SHORT = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн",
+                   "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
 
 
-# ---------------------------------------------------------------- бот
-
-@dp.message(CommandStart())
-async def cmd_start(message: Message):
-    user = message.from_user
-    if users.is_admin(user.id, ADMIN_ID) or users.is_allowed(user.id):
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app/"))]],
-            resize_keyboard=True,
-        )
-        await message.answer("Доступ есть. Открывайте приложение кнопкой ниже.", reply_markup=kb)
+def _ensure_font():
+    global _FONT_REGISTERED
+    if _FONT_REGISTERED:
         return
+    pdfmetrics.registerFont(TTFont("DejaVuSans", os.path.join(_FONTS_DIR, "DejaVuSans.ttf")))
+    pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", os.path.join(_FONTS_DIR, "DejaVuSans-Bold.ttf")))
+    _FONT_REGISTERED = True
 
-    users.add_pending(user.id, user.full_name)
-    await message.answer("Заявка на доступ отправлена администратору. Как только одобрят — пришлю кнопку входа.")
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Разрешить", callback_data=f"approve:{user.id}"),
-        InlineKeyboardButton(text="✖️ Отклонить", callback_data=f"deny:{user.id}"),
-    ]])
-    await bot.send_message(
-        ADMIN_ID,
-        f"Запрос доступа к финансовому приложению:\n{user.full_name} (id {user.id}, @{user.username or '—'})",
-        reply_markup=kb,
+def _fmt(n: float) -> str:
+    return f"{n:,.0f}".replace(",", " ")
+
+
+def build_pdf(year: int, revenue: dict, expenses: dict, by_category: dict) -> bytes:
+    """
+    revenue: {month(1-12): {"cash":..,"invoice":..,"total":..}}
+    expenses: {month(1-12): total_float}
+    by_category: {category_name: total_float}
+    """
+    _ensure_font()
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("TitleRu", parent=styles["Title"], fontName="DejaVuSans-Bold")
+    normal_style = ParagraphStyle("NormalRu", parent=styles["Normal"], fontName="DejaVuSans", fontSize=9)
+    h2_style = ParagraphStyle("H2Ru", parent=styles["Heading2"], fontName="DejaVuSans-Bold", fontSize=13)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=18 * mm, bottomMargin=15 * mm, leftMargin=15 * mm, rightMargin=15 * mm,
     )
+    story = []
 
+    story.append(Paragraph("Финансовый отчёт", title_style))
+    story.append(Paragraph(
+        f"{year} год · сформирован {datetime.date.today().strftime('%d.%m.%Y')}",
+        normal_style,
+    ))
+    story.append(Spacer(1, 14))
 
-@dp.callback_query(F.data.startswith("approve:"))
-async def cb_approve(callback):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("Только администратор может это делать.", show_alert=True)
-        return
-    user_id = int(callback.data.split(":")[1])
-    name = users.approve(user_id)
-    await callback.message.edit_text(f"{callback.message.text}\n\n→ Одобрено.")
-    if name:
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app/"))]],
-            resize_keyboard=True,
-        )
-        await bot.send_message(user_id, "Вам открыли доступ. Открывайте приложение кнопкой ниже.", reply_markup=kb)
-    await callback.answer()
+    empty = {"cash": 0.0, "invoice": 0.0, "total": 0.0}
+    header = ["Месяц", "Наличные", "По счёту", "Выручка", "Расходы", "Прибыль"]
+    data = [header]
 
+    total_cash = total_inv = total_rev = total_exp = total_profit = 0.0
+    for m in range(1, 13):
+        rv = revenue.get(m, empty)
+        exp = expenses.get(m, 0.0)
+        profit = rv["total"] - exp
+        data.append([
+            MONTH_RU_SHORT[m - 1],
+            _fmt(rv["cash"]), _fmt(rv["invoice"]), _fmt(rv["total"]),
+            _fmt(exp), _fmt(profit),
+        ])
+        total_cash += rv["cash"]
+        total_inv += rv["invoice"]
+        total_rev += rv["total"]
+        total_exp += exp
+        total_profit += profit
 
-@dp.callback_query(F.data.startswith("deny:"))
-async def cb_deny(callback):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("Только администратор может это делать.", show_alert=True)
-        return
-    user_id = int(callback.data.split(":")[1])
-    users.deny(user_id)
-    await callback.message.edit_text(f"{callback.message.text}\n\n→ Отклонено.")
-    await bot.send_message(user_id, "Доступ к приложению не одобрен.")
-    await callback.answer()
+    data.append(["Итого", _fmt(total_cash), _fmt(total_inv), _fmt(total_rev),
+                 _fmt(total_exp), _fmt(total_profit)])
 
+    table = Table(data, colWidths=[22 * mm, 27 * mm, 27 * mm, 27 * mm, 27 * mm, 27 * mm])
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "DejaVuSans"),
+        ("FONTNAME", (0, 0), (-1, 0), "DejaVuSans-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "DejaVuSans-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1d1d1f")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f5f5f7")),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d2d2d7")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fafafa")]),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 20))
 
-@dp.message(F.text == "/users")
-async def cmd_users(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    allowed = users.list_allowed()
-    if not allowed:
-        await message.answer("Пока никто не одобрен, кроме вас.")
-        return
-    lines = [f"{uid}: {name}" for uid, name in allowed.items()]
-    await message.answer("Одобренные пользователи:\n" + "\n".join(lines))
+    if by_category:
+        story.append(Paragraph("Расходы по категориям", h2_style))
+        story.append(Spacer(1, 8))
+        cat_data = [["Категория", "Сумма, MDL"]]
+        for cat, amount in sorted(by_category.items(), key=lambda kv: -kv[1]):
+            if amount:
+                cat_data.append([cat or "—", _fmt(amount)])
+        cat_table = Table(cat_data, colWidths=[110 * mm, 40 * mm])
+        cat_table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), "DejaVuSans"),
+            ("FONTNAME", (0, 0), (-1, 0), "DejaVuSans-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1d1d1f")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d2d2d7")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(cat_table)
 
-
-# ---------------------------------------------------------------- API для Mini App
-
-def _authed_user(init_data: str) -> dict:
-    user = auth.verify_init_data(init_data, BOT_TOKEN)
-    if not user:
-        raise HTTPException(401, "Не удалось подтвердить подлинность запроса Telegram.")
-    if not (users.is_admin(user["id"], ADMIN_ID) or users.is_allowed(user["id"])):
-        raise HTTPException(403, "Нет доступа. Откройте бота и запросите доступ через /start.")
-    return user
-
-
-@app.get("/api/summary")
-async def api_summary(init_data: str, year: int = datetime.date.today().year):
-    _authed_user(init_data)
-    revenue = gsheets.get_revenue_by_month(year)
-    expenses, by_cat = gsheets.get_expenses_summary(year)
-    today = datetime.date.today()
-    upcoming = today.month + 1 if today.month < 12 else 1
-
-    # forecast.py работает с простыми {month: total}, поэтому даём ему
-    # только суммарную выручку (наличные + по счёту).
-    revenue_total = {m: v["total"] for m, v in revenue.items()}
-    kpis = forecast.build_kpis(revenue_total, expenses, upcoming if today.month < 12 else 13)
-
-    months = list(range(1, 13))
-    empty = {"cash": 0, "invoice": 0, "total": 0}
-    return JSONResponse({
-        "revenue_by_month": {m: revenue.get(m, empty)["total"] for m in months},
-        "revenue_cash_by_month": {m: revenue.get(m, empty)["cash"] for m in months},
-        "revenue_invoice_by_month": {m: revenue.get(m, empty)["invoice"] for m in months},
-        "expenses_by_month": {m: expenses.get(m, 0) for m in months},
-        "expenses_by_category": by_cat,
-        "kpis": kpis,
-    })
-
-
-@app.get("/api/report")
-async def api_report(init_data: str, year: int = datetime.date.today().year):
-    _authed_user(init_data)
-    revenue = gsheets.get_revenue_by_month(year)
-    expenses, by_cat = gsheets.get_expenses_summary(year)
-    pdf_bytes = report.build_pdf(year, revenue, expenses, by_cat)
-    filename = f"otchet_{year}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@app.post("/api/expense")
-async def api_add_expense(request: Request):
-    body = await request.json()
-    init_data = body.get("init_data", "")
-    user = _authed_user(init_data)
-
-    required = ["date", "category", "description", "account", "currency", "amount"]
-    if any(k not in body for k in required):
-        raise HTTPException(400, "Не хватает полей.")
-
-    gsheets.add_expense(
-        date=body["date"],
-        category=body["category"],
-        description=body["description"],
-        account=body["account"],
-        currency=body["currency"],
-        amount=float(body["amount"]),
-        rate=float(body.get("rate") or 1),
-        has_doc=body.get("has_doc", "Нет"),
-        added_by=user.get("first_name", str(user["id"])),
-    )
-    return {"ok": True}
-
-
-# ---------------------------------------------------------------- запуск бота вместе с сервером
-
-@app.on_event("startup")
-async def on_startup():
-    asyncio.create_task(dp.start_polling(bot))
+    doc.build(story)
+    return buf.getvalue()
