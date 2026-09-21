@@ -405,7 +405,7 @@
     renderServices(data.revenue_by_service_month, periodLabel);
   }
 
-  var MAIN_SERVICE_KEYS = ["gandaci", "plosnite", "zburatoare", "rozatoare"];
+  var MAIN_SERVICE_KEYS = ["cockroach", "bedbug", "flying", "rodent"];
 
   function renderServices(byMonth, periodLabel){
     var grid = document.getElementById('svcGrid');
@@ -456,7 +456,7 @@
     });
     if (note) {
       note.textContent = otherCount > 0
-        ? 'Другое (муравьи, осы, блохи, дезинфекция): ' + otherCount + ' выз., ' + fmt(otherTotal)
+        ? 'Другое (муравьи, осы, блохи): ' + otherCount + ' выз., ' + fmt(otherTotal)
         : '';
     }
   }
