@@ -284,6 +284,40 @@ def delete_expense(row: int) -> None:
     ws.delete_rows(row)
 
 
+def bank_expense_marker(period_from: str, period_to: str) -> str:
+    return f"Расходы по банковской выписке {period_from} – {period_to}"
+
+
+def upsert_bank_expense(date: str, period_from: str, period_to: str, amount: float, added_by: str) -> None:
+    """Добавляет одну строку в «Расходы» с итогом по банковской выписке за
+    период (period_from/period_to — в формате ДД.ММ.ГГГГ). Если для этого
+    же периода такая строка уже есть (по совпадению категории и текста
+    описания), просто обновляет в ней сумму — чтобы повторная загрузка той
+    же выписки не создавала дубль."""
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = sh.worksheet("Расходы")
+    all_rows = ws.get_all_values()
+    data_rows = all_rows[4:]
+    marker = bank_expense_marker(period_from, period_to)
+
+    target_row = None
+    for i, row in enumerate(data_rows):
+        if len(row) > 3 and row[2] == "Банковские переводы" and row[3] == marker:
+            target_row = i + 5
+            break
+
+    if target_row:
+        update_expense(
+            row=target_row, date=date, category="Банковские переводы", description=marker,
+            account="Перечисление", currency="MDL", amount=amount, rate=1,
+        )
+    else:
+        add_expense(
+            date=date, category="Банковские переводы", description=marker, account="Перечисление",
+            currency="MDL", amount=amount, rate=1, has_doc="Нет", added_by=added_by,
+        )
+
+
 def get_expenses_total_in_range(date_from: str, date_to: str) -> float:
     """Сумма (в MDL) расходов, внесённых в «Расходы», по датам в диапазоне
     [date_from, date_to] включительно. date_from/date_to — в формате
