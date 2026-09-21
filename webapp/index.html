@@ -101,6 +101,9 @@
     width:100%;max-width:220px;margin:0 auto;display:block;text-align:center;
     font-size:28px;letter-spacing:10px;padding:14px 10px 14px 20px;
   }
+  .hist-month-header{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;font-weight:700;
+    color:var(--ink-2);margin:18px 0 8px;padding:0 2px;}
+  .hist-month-header:first-child{margin-top:0;}
   .hist-item{background:var(--surface);border-radius:12px;padding:12px 14px;margin-bottom:8px;}
   .hist-item .top{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--ink-2);}
   .hist-item .desc{font-size:14px;font-weight:600;margin:4px 0 2px;}
@@ -667,6 +670,15 @@
       });
   }
 
+  var MONTHS_FULL_RU = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+
+  function parseItemDate(dateStr){
+    var iso = toISODate(dateStr);
+    if (!iso) return null;
+    var parts = iso.split('-');
+    return { year: parseInt(parts[0], 10), month: parseInt(parts[1], 10), iso: iso };
+  }
+
   function renderHistory(items){
     var list = document.getElementById('historyList');
     list.innerHTML = '';
@@ -674,19 +686,51 @@
       list.innerHTML = '<p class="forecast-note">Пока нет расходов за этот год.</p>';
       return;
     }
-    items.forEach(function(item){
-      var div = document.createElement('div');
-      div.className = 'hist-item';
-      div.innerHTML =
-        '<div class="top"><span>' + item.date + '</span><span>' + item.account + '</span></div>' +
-        '<div class="desc">' + (item.description || item.category) + '</div>' +
-        '<div class="meta">' + item.category + '</div>' +
-        '<div class="amount">' + item.amount + ' ' + item.currency + '</div>' +
-        '<div class="hist-actions">' +
-          '<button type="button" data-action="edit" data-row="' + item.row + '">Изменить</button>' +
-          '<button type="button" class="danger" data-action="delete" data-row="' + item.row + '">Удалить</button>' +
-        '</div>';
-      list.appendChild(div);
+
+    // Сортируем по дате (новые сверху), чтобы месяцы шли по порядку, а не
+    // вперемешку по порядку строк в таблице.
+    var sorted = items.slice().sort(function(a, b){
+      var ka = (parseItemDate(a.date) || {}).iso || '';
+      var kb = (parseItemDate(b.date) || {}).iso || '';
+      if (ka === kb) return b.row - a.row;
+      return ka < kb ? 1 : -1;
+    });
+
+    // Группируем подряд идущие записи по месяцу с итогом за месяц.
+    var groups = [];
+    var byKey = {};
+    sorted.forEach(function(item){
+      var d = parseItemDate(item.date);
+      var key = d ? (d.year + '-' + d.month) : 'unknown';
+      var label = d ? (MONTHS_FULL_RU[d.month - 1] + ' ' + d.year) : 'Без даты';
+      if (!byKey[key]) {
+        byKey[key] = { label: label, total: 0, items: [] };
+        groups.push(byKey[key]);
+      }
+      byKey[key].total += (parseFloat(item.mdl) || 0);
+      byKey[key].items.push(item);
+    });
+
+    groups.forEach(function(group){
+      var header = document.createElement('div');
+      header.className = 'hist-month-header';
+      header.innerHTML = '<span>' + group.label + '</span><span>' + fmt(group.total) + '</span>';
+      list.appendChild(header);
+
+      group.items.forEach(function(item){
+        var div = document.createElement('div');
+        div.className = 'hist-item';
+        div.innerHTML =
+          '<div class="top"><span>' + item.date + '</span><span>' + item.account + '</span></div>' +
+          '<div class="desc">' + (item.description || item.category) + '</div>' +
+          '<div class="meta">' + item.category + '</div>' +
+          '<div class="amount">' + item.amount + ' ' + item.currency + '</div>' +
+          '<div class="hist-actions">' +
+            '<button type="button" data-action="edit" data-row="' + item.row + '">Изменить</button>' +
+            '<button type="button" class="danger" data-action="delete" data-row="' + item.row + '">Удалить</button>' +
+          '</div>';
+        list.appendChild(div);
+      });
     });
 
     list.querySelectorAll('[data-action="edit"]').forEach(function(b){
