@@ -154,3 +154,56 @@ def get_expenses_by_month(year: int) -> dict:
 
 def get_expenses_by_category(year: int) -> dict:
     return get_expenses_summary(year)[1]
+
+
+def list_expenses(year: int, limit: int = 50) -> list:
+    """Список последних расходов (для истории в приложении, с
+    возможностью редактировать/удалять). "row" — номер строки в самой
+    Google Таблице (с 1), он же используется как id для update/delete —
+    так что не стоит вручную переставлять местами строки в «Расходы»,
+    пока пользуетесь историей в приложении."""
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = sh.worksheet("Расходы")
+    all_rows = ws.get_all_values()
+    data_rows = all_rows[4:]  # первые 4 строки — заголовок/пояснения
+
+    items = []
+    for i, row in enumerate(data_rows):
+        if not row or not row[0]:
+            continue
+        d = _parse_date(row[0])
+        if d is None or d.year != year:
+            continue
+        get = lambda idx: row[idx] if idx < len(row) else ""
+        items.append({
+            "row": i + 5,
+            "date": get(0),
+            "category": get(2),
+            "description": get(3),
+            "account": get(4),
+            "currency": get(5),
+            "amount": get(6),
+            "rate": get(7),
+            "mdl": get(8),
+            "has_doc": get(9),
+        })
+    items.sort(key=lambda x: x["row"], reverse=True)
+    return items[:limit]
+
+
+def update_expense(row: int, date: str, category: str, description: str, account: str,
+                    currency: str, amount: float, rate: float) -> None:
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = sh.worksheet("Расходы")
+    mdl = amount if currency == "MDL" else amount * rate
+    d = datetime.datetime.strptime(date, "%Y-%m-%d")
+    month_name = MONTH_RU[d.month - 1]
+    ws.update(f"A{row}:I{row}", [[
+        date, month_name, category, description, account, currency, amount, rate, mdl,
+    ]], value_input_option="USER_ENTERED")
+
+
+def delete_expense(row: int) -> None:
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = sh.worksheet("Расходы")
+    ws.delete_rows(row)
