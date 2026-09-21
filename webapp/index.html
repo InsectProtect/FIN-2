@@ -23,7 +23,11 @@
   body{
     margin:0;background:var(--bg);color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",system-ui,"Segoe UI",Roboto,sans-serif;
-    padding:16px 16px calc(90px + env(safe-area-inset-bottom)) 16px;
+    /* Сверху — дополнительный отступ (плюс safe-area самого устройства),
+       чтобы контент не начинался вплотную к кнопкам "Закрыть"/"⌄"/"•••" в
+       шапке Telegram (особенно в полноэкранном режиме) и было удобнее
+       нажимать на первые элементы. */
+    padding:calc(44px + env(safe-area-inset-top)) 16px calc(90px + env(safe-area-inset-bottom)) 16px;
     -webkit-font-smoothing:antialiased;
   }
   /* На широком экране (обычный браузер на компьютере) контент не
@@ -31,7 +35,7 @@
      мобильном приложении, только с более просторными отступами. */
   #locked, #pinScreen, #appRoot{max-width:720px;margin-left:auto;margin-right:auto;}
   @media (min-width:900px){
-    body{padding-top:48px;}
+    body{padding-top:64px;}
     .brand{margin-top:0;}
   }
   h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:8px 0 4px;}
