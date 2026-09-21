@@ -41,13 +41,24 @@
 
   .card{background:var(--surface);border-radius:16px;padding:18px;margin-bottom:14px;}
   .card h3{font-size:14px;margin:0 0 12px;font-weight:650;}
-  .bars{display:flex;align-items:flex-end;gap:5px;height:120px;}
-  .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px;}
-  .bar-stack{width:100%;max-width:22px;border-radius:4px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;height:100%;}
-  .bar{width:100%;}
-  .bar.rev{background:var(--accent);}
+  .kpi.good .value{color:var(--good);}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--ink-2);margin-bottom:10px;flex-wrap:wrap;}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+  .dot{width:8px;height:8px;border-radius:2px;display:inline-block;}
+  .dot.cash{background:var(--accent);}
+  .dot.invoice{background:var(--accent);opacity:.45;}
+  .dot.exp{background:var(--critical);opacity:.75;}
+  .bars{display:flex;align-items:flex-end;gap:5px;height:120px;cursor:pointer;}
+  .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px;border-radius:6px;padding:2px 0;}
+  .bar-col.selected{background:rgba(0,113,227,.1);}
+  .bar-stack{width:100%;max-width:22px;border-radius:4px;overflow:hidden;display:flex;gap:1px;height:100%;align-items:flex-end;}
+  .bar-group{width:100%;max-width:22px;display:flex;gap:1px;height:100%;align-items:flex-end;}
+  .bar{flex:1;border-radius:3px 3px 0 0;min-height:1px;}
+  .bar.cash{background:var(--accent);}
+  .bar.invoice{background:var(--accent);opacity:.45;}
   .bar.exp{background:var(--critical);opacity:.75;}
   .bar-col .m{font-size:9px;color:var(--ink-3);}
+  .bar-col.selected .m{color:var(--ink);font-weight:700;}
 
   label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px;}
   input,select,textarea{
@@ -81,14 +92,25 @@
   </div>
 
   <div class="view active" id="view-overview">
-    <div class="kpis">
-      <div class="kpi"><div class="label">Выручка YTD</div><div class="value" id="kpiRevenue">—</div></div>
-      <div class="kpi"><div class="label">Расходы YTD</div><div class="value" id="kpiExpenses">—</div></div>
-      <div class="kpi wide"><div class="label">Прибыль YTD</div><div class="value" id="kpiProfit">—</div></div>
+    <label style="margin-top:0;">Период</label>
+    <select id="monthFilter">
+      <option value="all">Весь год</option>
+    </select>
+
+    <div class="kpis" style="margin-top:14px;">
+      <div class="kpi"><div class="label" id="lblCash">Наличные (PRET C)</div><div class="value" id="kpiCash">—</div></div>
+      <div class="kpi"><div class="label" id="lblInvoice">По счёту (PRET F)</div><div class="value" id="kpiInvoice">—</div></div>
+      <div class="kpi"><div class="label" id="lblExpenses">Расходы</div><div class="value" id="kpiExpenses">—</div></div>
+      <div class="kpi good"><div class="label" id="lblProfit">Прибыль</div><div class="value" id="kpiProfit">—</div></div>
     </div>
 
     <div class="card">
       <h3>Выручка и расходы по месяцам</h3>
+      <div class="legend">
+        <span><i class="dot cash"></i>Наличные</span>
+        <span><i class="dot invoice"></i>По счёту</span>
+        <span><i class="dot exp"></i>Расходы</span>
+      </div>
       <div class="bars" id="chart"></div>
     </div>
 
@@ -170,18 +192,32 @@
   if (tg) { tg.ready(); tg.expand(); }
 
   if (!initData) {
-  var debug = "tg существует: " + (!!tg) +
-    "\ninitData (raw): '" + (tg ? tg.initData : "нет tg") + "'" +
-    "\ninitDataUnsafe: " + (tg ? JSON.stringify(tg.initDataUnsafe) : "нет tg") +
-    "\nplatform: " + (tg ? tg.platform : "-") +
-    "\nversion: " + (tg ? tg.version : "-");
-  document.getElementById('locked').style.display = 'block';
-  document.getElementById('locked').innerHTML += '<pre style="white-space:pre-wrap;text-align:left;font-size:11px;margin-top:16px;background:#f5f5f7;padding:12px;border-radius:8px;">' + debug + '</pre>';
-  return;
-}
+    var debug = "tg существует: " + (!!tg) +
+      "\ninitData (raw): '" + (tg ? tg.initData : "нет tg") + "'" +
+      "\ninitDataUnsafe: " + (tg ? JSON.stringify(tg.initDataUnsafe) : "нет tg") +
+      "\nplatform: " + (tg ? tg.platform : "-") +
+      "\nversion: " + (tg ? tg.version : "-");
+    document.getElementById('locked').style.display = 'block';
+    document.getElementById('locked').innerHTML += '<pre style="white-space:pre-wrap;text-align:left;font-size:11px;margin-top:16px;background:#f5f5f7;padding:12px;border-radius:8px;">' + debug + '</pre>';
+    return;
+  }
   document.getElementById('appRoot').style.display = 'block';
 
   var months = ["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"];
+  var lastData = null;
+  var selectedMonth = "all";
+
+  var monthFilter = document.getElementById('monthFilter');
+  months.forEach(function(m, i){
+    var opt = document.createElement('option');
+    opt.value = String(i + 1);
+    opt.textContent = m;
+    monthFilter.appendChild(opt);
+  });
+  monthFilter.addEventListener('change', function(){
+    selectedMonth = this.value;
+    if (lastData) render(lastData);
+  });
 
   document.querySelectorAll('.tab').forEach(function(tab){
     tab.addEventListener('click', function(){
@@ -198,43 +234,78 @@
 
   function fmt(n){ return Math.round(n).toLocaleString('ru-RU') + ' MDL'; }
 
+  function render(data){
+    var cash = data.revenue_cash_by_month, inv = data.revenue_invoice_by_month, exp = data.expenses_by_month;
+
+    // KPI: либо за весь год, либо только за выбранный месяц
+    var cashSum, invSum, expSum, periodLabel;
+    if (selectedMonth === "all") {
+      cashSum = Object.values(cash).reduce(function(a,b){return a+b;}, 0);
+      invSum = Object.values(inv).reduce(function(a,b){return a+b;}, 0);
+      expSum = Object.values(exp).reduce(function(a,b){return a+b;}, 0);
+      periodLabel = "YTD";
+    } else {
+      cashSum = cash[selectedMonth] || 0;
+      invSum = inv[selectedMonth] || 0;
+      expSum = exp[selectedMonth] || 0;
+      periodLabel = months[parseInt(selectedMonth, 10) - 1];
+    }
+    document.getElementById('lblCash').textContent = 'Наличные (' + periodLabel + ')';
+    document.getElementById('lblInvoice').textContent = 'По счёту (' + periodLabel + ')';
+    document.getElementById('lblExpenses').textContent = 'Расходы (' + periodLabel + ')';
+    document.getElementById('lblProfit').textContent = 'Прибыль (' + periodLabel + ')';
+    document.getElementById('kpiCash').textContent = fmt(cashSum);
+    document.getElementById('kpiInvoice').textContent = fmt(invSum);
+    document.getElementById('kpiExpenses').textContent = fmt(expSum);
+    document.getElementById('kpiProfit').textContent = fmt(cashSum + invSum - expSum);
+
+    // График — всегда на весь год, с подсветкой выбранного месяца
+    var max = Math.max.apply(null, months.map(function(_, i){
+      return Math.max((cash[i+1]||0) + (inv[i+1]||0), exp[i+1]||0);
+    })) || 1;
+    var chart = document.getElementById('chart');
+    chart.innerHTML = '';
+    months.forEach(function(m, i){
+      var monthNum = String(i + 1);
+      var col = document.createElement('div'); col.className = 'bar-col';
+      if (selectedMonth === monthNum) col.classList.add('selected');
+      col.addEventListener('click', function(){
+        monthFilter.value = (selectedMonth === monthNum) ? "all" : monthNum;
+        selectedMonth = monthFilter.value;
+        render(lastData);
+      });
+
+      var group = document.createElement('div'); group.className = 'bar-group';
+      var c = cash[i+1] || 0, iv = inv[i+1] || 0, e = exp[i+1] || 0;
+
+      var revStack = document.createElement('div');
+      revStack.style.flex = '1'; revStack.style.display = 'flex'; revStack.style.flexDirection = 'column-reverse';
+      revStack.style.height = ((c + iv) / max * 100) + '%'; revStack.style.borderRadius = '3px 3px 0 0'; revStack.style.overflow = 'hidden';
+      var bCash = document.createElement('div'); bCash.className = 'bar cash'; bCash.style.flex = String(c || 0.0001); bCash.style.borderRadius = '0';
+      var bInv = document.createElement('div'); bInv.className = 'bar invoice'; bInv.style.flex = String(iv || 0.0001); bInv.style.borderRadius = '0';
+      revStack.appendChild(bCash); revStack.appendChild(bInv);
+      var bExp = document.createElement('div'); bExp.className = 'bar exp'; bExp.style.height = (e/max*100) + '%'; bExp.style.flex = '1';
+      group.appendChild(revStack); group.appendChild(bExp);
+
+      var label = document.createElement('div'); label.className = 'm'; label.textContent = m;
+      col.appendChild(group); col.appendChild(label);
+      chart.appendChild(col);
+    });
+
+    var k = data.kpis || {};
+    document.getElementById('fcRevenue').textContent = k.revenue_forecast != null ? fmt(k.revenue_forecast) : 'мало данных';
+    document.getElementById('fcExpenses').textContent = k.expenses_forecast != null ? fmt(k.expenses_forecast) : 'мало данных';
+  }
+
   function loadSummary(){
     fetch('/api/summary?init_data=' + encodeURIComponent(initData))
       .then(function(r){ return r.json(); })
       .then(function(data){
-        var rev = data.revenue_by_month, exp = data.expenses_by_month;
-        var totalRev = 0, totalExp = 0;
-        Object.values(rev).forEach(function(v){ totalRev += v; });
-        Object.values(exp).forEach(function(v){ totalExp += v; });
-        document.getElementById('kpiRevenue').textContent = fmt(totalRev);
-        document.getElementById('kpiExpenses').textContent = fmt(totalExp);
-        document.getElementById('kpiProfit').textContent = fmt(totalRev - totalExp);
-
-        var max = Math.max.apply(null, months.map(function(_, i){ return Math.max(rev[i+1]||0, exp[i+1]||0); })) || 1;
-        var chart = document.getElementById('chart');
-        chart.innerHTML = '';
-        months.forEach(function(m, i){
-          var col = document.createElement('div'); col.className = 'bar-col';
-          var stack = document.createElement('div'); stack.className = 'bar-stack';
-          var r = rev[i+1] || 0, e = exp[i+1] || 0;
-          stack.style.height = (4 + (Math.max(r,e)/max)*100) + 'px';
-          var inner = document.createElement('div');
-          inner.style.display = 'flex'; inner.style.gap='1px'; inner.style.height='100%'; inner.style.alignItems='flex-end';
-          var b1 = document.createElement('div'); b1.className='bar rev'; b1.style.height=(r/Math.max(r,e,1)*100)+'%'; b1.style.flex='1';
-          var b2 = document.createElement('div'); b2.className='bar exp'; b2.style.height=(e/Math.max(r,e,1)*100)+'%'; b2.style.flex='1';
-          inner.appendChild(b1); inner.appendChild(b2);
-          stack.innerHTML=''; stack.appendChild(inner);
-          var label = document.createElement('div'); label.className='m'; label.textContent=m;
-          col.appendChild(stack); col.appendChild(label);
-          chart.appendChild(col);
-        });
-
-        var k = data.kpis || {};
-        document.getElementById('fcRevenue').textContent = k.revenue_forecast != null ? fmt(k.revenue_forecast) : 'мало данных';
-        document.getElementById('fcExpenses').textContent = k.expenses_forecast != null ? fmt(k.expenses_forecast) : 'мало данных';
+        lastData = data;
+        render(data);
       })
       .catch(function(){
-        document.getElementById('kpiRevenue').textContent = 'ошибка';
+        document.getElementById('kpiCash').textContent = 'ошибка';
       });
   }
   loadSummary();
