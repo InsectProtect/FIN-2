@@ -140,7 +140,7 @@ async def api_verify_pin(init_data: str = Form(...), pin: str = Form("")):
 async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.today().year):
     _authed_user(init_data, pin)
     revenue = gsheets.get_revenue_by_month(year)
-    expenses, by_cat = gsheets.get_expenses_summary(year)
+    expenses, by_cat, _ = gsheets.get_expenses_summary(year)
     by_service_month = gsheets.get_revenue_by_service(year)
     today = datetime.date.today()
     upcoming = today.month + 1 if today.month < 12 else 1
@@ -166,12 +166,39 @@ async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.t
 
 
 @app.get("/api/report")
-async def api_report(init_data: str, pin: str = "", year: int = datetime.date.today().year):
+async def api_report(init_data: str, pin: str = "", year: int = datetime.date.today().year, month: str = "all"):
     _authed_user(init_data, pin)
+    month_i = None
+    if month and month != "all":
+        try:
+            month_i = int(month)
+            if not 1 <= month_i <= 12:
+                month_i = None
+        except ValueError:
+            month_i = None
+
     revenue = gsheets.get_revenue_by_month(year)
-    expenses, by_cat = gsheets.get_expenses_summary(year)
-    pdf_bytes = report.build_pdf(year, revenue, expenses, by_cat)
-    filename = f"otchet_{year}.pdf"
+    expenses, by_cat, by_month_cat = gsheets.get_expenses_summary(year)
+    by_cat_report = by_month_cat.get(month_i, {}) if month_i else by_cat
+
+    # Разбивка по видам вредителей ("круглый дашборд", как на главном
+    # экране приложения) — за выбранный месяц, либо суммарно за весь год.
+    by_service_month = gsheets.get_revenue_by_service(year)
+    if month_i:
+        pest_list = by_service_month.get(month_i, [])
+    else:
+        agg = {}
+        for items in by_service_month.values():
+            for item in items:
+                bucket = agg.setdefault(item["key"], {"key": item["key"], "label": item["label"], "count": 0, "total": 0.0})
+                bucket["count"] += item["count"]
+                bucket["total"] += item["total"]
+        pest_list = list(agg.values())
+    total_requests = sum(item["count"] for item in pest_list)
+
+    pdf_bytes = report.build_pdf(year, revenue, expenses, by_cat_report,
+                                  month=month_i, pest_list=pest_list, total_requests=total_requests)
+    filename = f"otchet_{year}.pdf" if not month_i else f"otchet_{year}_{month_i:02d}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
