@@ -132,6 +132,7 @@ async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.t
     _authed_user(init_data, pin)
     revenue = gsheets.get_revenue_by_month(year)
     expenses, by_cat = gsheets.get_expenses_summary(year)
+    by_service = gsheets.get_revenue_by_service(year)
     today = datetime.date.today()
     upcoming = today.month + 1 if today.month < 12 else 1
 
@@ -148,6 +149,7 @@ async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.t
         "revenue_invoice_by_month": {m: revenue.get(m, empty)["invoice"] for m in months},
         "expenses_by_month": {m: expenses.get(m, 0) for m in months},
         "expenses_by_category": by_cat,
+        "revenue_by_service": by_service,
         "kpis": kpis,
     })
 
