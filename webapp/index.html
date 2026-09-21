@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Финансы компании</title>
+<title>Insect Protect — Финансы</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root{
     --bg:#ffffff;--surface:#f5f5f7;--ink:#1d1d1f;--ink-2:#6e6e73;--ink-3:#86868b;
-    --accent:#0071e3;--accent-ink:#ffffff;--good:#248a3d;--good-bg:#e6f6ea;
+    --accent:#f27b21;--accent-ink:#ffffff;--good:#248a3d;--good-bg:#e6f6ea;
     --critical:#d70015;--border:#d2d2d7;
   }
   @media (prefers-color-scheme: dark){
     :root{
       --bg:#000000;--surface:#1c1c1e;--ink:#f5f5f7;--ink-2:#a1a1a6;--ink-3:#8a8a8e;
-      --accent:#0a84ff;--accent-ink:#ffffff;--good:#32d74b;--good-bg:rgba(50,215,75,.14);
+      --accent:#ff8c42;--accent-ink:#1d1d1f;--good:#32d74b;--good-bg:rgba(50,215,75,.14);
       --critical:#ff453a;--border:#38383a;
     }
   }
@@ -27,6 +27,12 @@
   }
   h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:8px 0 4px;}
   .sub{font-size:13px;color:var(--ink-2);margin:0 0 20px;}
+  .brand{display:flex;align-items:center;gap:12px;margin:6px 0 24px;}
+  .brand-mark{width:38px;height:38px;border-radius:10px;background:var(--accent);color:var(--accent-ink);
+    display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;letter-spacing:-.02em;flex-shrink:0;}
+  .brand-text{line-height:1.2;}
+  .brand-name{font-size:18px;font-weight:700;letter-spacing:-.01em;}
+  .brand-sub{font-size:12px;color:var(--ink-2);margin-top:1px;}
   .tabs{display:flex;gap:8px;background:var(--surface);border-radius:14px;padding:4px;margin-bottom:20px;}
   .tab{flex:1;text-align:center;padding:9px 0;border-radius:11px;font-size:13px;font-weight:600;color:var(--ink-2);}
   .tab.active{background:var(--bg);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08);}
@@ -50,7 +56,7 @@
   .dot.exp{background:var(--critical);opacity:.75;}
   .bars{display:flex;align-items:flex-end;gap:5px;height:120px;cursor:pointer;}
   .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px;border-radius:6px;padding:2px 0;}
-  .bar-col.selected{background:rgba(0,113,227,.1);}
+  .bar-col.selected{background:rgba(242,123,33,.12);}
   .bar-stack{width:100%;max-width:22px;border-radius:4px;overflow:hidden;display:flex;gap:1px;height:100%;align-items:flex-end;}
   .bar-group{width:100%;max-width:22px;display:flex;gap:1px;height:100%;align-items:flex-end;}
   .bar{flex:1;border-radius:3px 3px 0 0;min-height:1px;}
@@ -105,19 +111,28 @@
 </head>
 <body>
 
-<div id="locked" class="locked" style="display:none;">Нет доступа. Откройте бота и отправьте /start — администратор одобрит вход.</div>
+<div id="locked" class="locked" style="display:none;">
+  <div class="brand-mark" style="margin:0 auto 16px;">P</div>
+  Нет доступа. Откройте бота и отправьте /start — администратор одобрит вход.
+</div>
 
 <div id="pinScreen" class="pin-screen" style="display:none;">
+  <div class="brand-mark" style="margin:0 auto 16px;">P</div>
   <h2>Введите пин-код</h2>
-  <p>Для доступа к финансам компании</p>
+  <p>Insect Protect · Финансы компании</p>
   <input type="password" id="pinInput" class="pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off">
   <button class="primary" id="pinSubmit" style="max-width:220px;">Войти</button>
   <div class="status" id="pinStatus"></div>
 </div>
 
 <div id="appRoot" style="display:none;">
-  <h1>Финансы компании</h1>
-  <p class="sub" id="periodLabel">2026</p>
+  <div class="brand">
+    <div class="brand-mark">P</div>
+    <div class="brand-text">
+      <div class="brand-name">Insect Protect</div>
+      <div class="brand-sub" id="periodLabel">Финансы компании · 2026</div>
+    </div>
+  </div>
 
   <div class="tabs">
     <div class="tab active" data-tab="overview">Обзор</div>
