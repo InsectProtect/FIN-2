@@ -132,7 +132,7 @@ async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.t
     _authed_user(init_data, pin)
     revenue = gsheets.get_revenue_by_month(year)
     expenses, by_cat = gsheets.get_expenses_summary(year)
-    by_service = gsheets.get_revenue_by_service(year)
+    by_service_month = gsheets.get_revenue_by_service(year)
     today = datetime.date.today()
     upcoming = today.month + 1 if today.month < 12 else 1
 
@@ -143,13 +143,15 @@ async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.t
 
     months = list(range(1, 13))
     empty = {"cash": 0, "invoice": 0, "total": 0}
+    empty_service_list = [{"key": k, "label": gsheets.SERVICE_LABELS[k], "count": 0, "total": 0.0}
+                           for k in gsheets.SERVICE_ORDER] + [{"key": "other", "label": "Другое", "count": 0, "total": 0.0}]
     return JSONResponse({
         "revenue_by_month": {m: revenue.get(m, empty)["total"] for m in months},
         "revenue_cash_by_month": {m: revenue.get(m, empty)["cash"] for m in months},
         "revenue_invoice_by_month": {m: revenue.get(m, empty)["invoice"] for m in months},
         "expenses_by_month": {m: expenses.get(m, 0) for m in months},
         "expenses_by_category": by_cat,
-        "revenue_by_service": by_service,
+        "revenue_by_service_month": {m: by_service_month.get(m, empty_service_list) for m in months},
         "kpis": kpis,
     })
 
