@@ -79,11 +79,26 @@
   .status.err{color:var(--critical);}
   .forecast-note{font-size:12px;color:var(--ink-2);line-height:1.5;margin-top:8px;}
   .locked{padding:60px 20px;text-align:center;color:var(--ink-2);font-size:14px;}
+  .pin-screen{padding:60px 20px 20px;text-align:center;}
+  .pin-screen h2{font-size:18px;margin:0 0 6px;}
+  .pin-screen p{font-size:13px;color:var(--ink-2);margin:0 0 22px;}
+  .pin-input{
+    width:100%;max-width:220px;margin:0 auto;display:block;text-align:center;
+    font-size:28px;letter-spacing:10px;padding:14px 10px 14px 20px;
+  }
 </style>
 </head>
 <body>
 
 <div id="locked" class="locked" style="display:none;">Нет доступа. Откройте бота и отправьте /start — администратор одобрит вход.</div>
+
+<div id="pinScreen" class="pin-screen" style="display:none;">
+  <h2>Введите пин-код</h2>
+  <p>Для доступа к финансам компании</p>
+  <input type="password" id="pinInput" class="pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off">
+  <button class="primary" id="pinSubmit" style="max-width:220px;">Войти</button>
+  <div class="status" id="pinStatus"></div>
+</div>
 
 <div id="appRoot" style="display:none;">
   <h1>Финансы компании</h1>
@@ -208,7 +223,58 @@
     document.getElementById('locked').innerHTML += '<pre style="white-space:pre-wrap;text-align:left;font-size:11px;margin-top:16px;background:#f5f5f7;padding:12px;border-radius:8px;">' + debug + '</pre>';
     return;
   }
-  document.getElementById('appRoot').style.display = 'block';
+
+  var pin = sessionStorage.getItem('app_pin') || '';
+
+  function startApp(){
+    document.getElementById('pinScreen').style.display = 'none';
+    document.getElementById('appRoot').style.display = 'block';
+    loadSummary();
+  }
+
+  function verifyPinAndStart(candidatePin){
+    var pinBtn = document.getElementById('pinSubmit');
+    var pinStatus = document.getElementById('pinStatus');
+    pinBtn.disabled = true;
+    pinStatus.textContent = 'Проверяем...'; pinStatus.className = 'status';
+    var fd = new FormData();
+    fd.append('init_data', initData);
+    fd.append('pin', candidatePin);
+    fetch('/api/verify_pin', { method: 'POST', body: fd }).then(function(r){
+      if (!r.ok) throw new Error();
+      return r.json();
+    }).then(function(){
+      pin = candidatePin;
+      sessionStorage.setItem('app_pin', pin);
+      startApp();
+    }).catch(function(){
+      pinStatus.textContent = 'Неверный пин-код.'; pinStatus.className = 'status err';
+      document.getElementById('pinInput').value = '';
+      document.getElementById('pinInput').focus();
+    }).finally(function(){
+      pinBtn.disabled = false;
+    });
+  }
+
+  document.getElementById('pinScreen').style.display = 'block';
+  var pinInput = document.getElementById('pinInput');
+  document.getElementById('pinSubmit').addEventListener('click', function(){
+    var val = pinInput.value.trim();
+    if (!val) {
+      document.getElementById('pinStatus').textContent = 'Введите пин-код.';
+      document.getElementById('pinStatus').className = 'status err';
+      return;
+    }
+    verifyPinAndStart(val);
+  });
+  pinInput.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') document.getElementById('pinSubmit').click();
+  });
+  if (pin) {
+    verifyPinAndStart(pin);
+  } else {
+    pinInput.focus();
+  }
 
   var months = ["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"];
   var lastData = null;
@@ -305,7 +371,7 @@
   }
 
   function loadSummary(){
-    fetch('/api/summary?init_data=' + encodeURIComponent(initData))
+    fetch('/api/summary?init_data=' + encodeURIComponent(initData) + '&pin=' + encodeURIComponent(pin))
       .then(function(r){ return r.json(); })
       .then(function(data){
         lastData = data;
@@ -315,12 +381,11 @@
         document.getElementById('kpiCash').textContent = 'ошибка';
       });
   }
-  loadSummary();
 
   document.getElementById('downloadReportBtn').addEventListener('click', function(){
     var status = document.getElementById('reportStatus');
     status.textContent = 'Готовим файл...'; status.className = 'status';
-    var url = window.location.origin + '/api/report?init_data=' + encodeURIComponent(initData) + '&year=' + new Date().getFullYear();
+    var url = window.location.origin + '/api/report?init_data=' + encodeURIComponent(initData) + '&pin=' + encodeURIComponent(pin) + '&year=' + new Date().getFullYear();
     if (tg && tg.openLink) {
       tg.openLink(url);
     } else {
@@ -354,6 +419,7 @@
     }
     var fd = new FormData();
     fd.append('init_data', initData);
+    fd.append('pin', pin);
     fd.append('date', date);
     fd.append('category', document.getElementById('f_category').value);
     fd.append('description', document.getElementById('f_desc').value);
