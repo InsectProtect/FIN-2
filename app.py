@@ -107,18 +107,29 @@ async def cmd_users(message: Message):
 
 # ---------------------------------------------------------------- API для Mini App
 
-def _authed_user(init_data: str) -> dict:
+APP_PIN = os.environ.get("APP_PIN")  # если не задан в Render — пин-экран отключён
+
+
+def _authed_user(init_data: str, pin: str = "") -> dict:
     user = auth.verify_init_data(init_data, BOT_TOKEN)
     if not user:
         raise HTTPException(401, "Не удалось подтвердить подлинность запроса Telegram.")
     if not (users.is_admin(user["id"], ADMIN_ID) or users.is_allowed(user["id"])):
         raise HTTPException(403, "Нет доступа. Откройте бота и запросите доступ через /start.")
+    if APP_PIN and pin != APP_PIN:
+        raise HTTPException(401, "Неверный пин-код.")
     return user
 
 
+@app.post("/api/verify_pin")
+async def api_verify_pin(init_data: str = Form(...), pin: str = Form("")):
+    _authed_user(init_data, pin)
+    return {"ok": True}
+
+
 @app.get("/api/summary")
-async def api_summary(init_data: str, year: int = datetime.date.today().year):
-    _authed_user(init_data)
+async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.today().year):
+    _authed_user(init_data, pin)
     revenue = gsheets.get_revenue_by_month(year)
     expenses, by_cat = gsheets.get_expenses_summary(year)
     today = datetime.date.today()
@@ -142,8 +153,8 @@ async def api_summary(init_data: str, year: int = datetime.date.today().year):
 
 
 @app.get("/api/report")
-async def api_report(init_data: str, year: int = datetime.date.today().year):
-    _authed_user(init_data)
+async def api_report(init_data: str, pin: str = "", year: int = datetime.date.today().year):
+    _authed_user(init_data, pin)
     revenue = gsheets.get_revenue_by_month(year)
     expenses, by_cat = gsheets.get_expenses_summary(year)
     pdf_bytes = report.build_pdf(year, revenue, expenses, by_cat)
@@ -158,6 +169,7 @@ async def api_report(init_data: str, year: int = datetime.date.today().year):
 @app.post("/api/expense")
 async def api_add_expense(
     init_data: str = Form(...),
+    pin: str = Form(""),
     date: str = Form(...),
     category: str = Form(...),
     description: str = Form(...),
@@ -167,7 +179,7 @@ async def api_add_expense(
     rate: float = Form(1),
     receipt: UploadFile | None = File(None),
 ):
-    user = _authed_user(init_data)
+    user = _authed_user(init_data, pin)
     added_by = user.get("first_name", str(user["id"]))
 
     has_doc = "Нет"
