@@ -10,8 +10,8 @@ import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import (BufferedInputFile, InlineKeyboardButton,
-                            InlineKeyboardMarkup, KeyboardButton, Message,
-                            ReplyKeyboardMarkup, WebAppInfo)
+                            InlineKeyboardMarkup, Message,
+                            ReplyKeyboardRemove, WebAppInfo)
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -49,11 +49,14 @@ async def root_redirect():
 async def cmd_start(message: Message):
     user = message.from_user
     if users.is_admin(user.id, ADMIN_ID) or users.is_allowed(user.id):
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app/"))]],
-            resize_keyboard=True,
-        )
-        await message.answer("Доступ есть. Открывайте приложение кнопкой ниже.", reply_markup=kb)
+        # Убираем старую постоянную кнопку внизу экрана (если она была
+        # показана раньше) и вместо неё даём обычную кнопку прямо в
+        # сообщении — она не занимает место вместо клавиатуры.
+        await message.answer("Доступ есть.", reply_markup=ReplyKeyboardRemove())
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app/")),
+        ]])
+        await message.answer("Открывайте приложение кнопкой ниже.", reply_markup=kb)
         return
 
     users.add_pending(user.id, user.full_name)
@@ -79,10 +82,9 @@ async def cb_approve(callback):
     name = users.approve(user_id)
     await callback.message.edit_text(f"{callback.message.text}\n\n→ Одобрено.")
     if name:
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app/"))]],
-            resize_keyboard=True,
-        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=f"{WEBAPP_URL}/app/")),
+        ]])
         await bot.send_message(user_id, "Вам открыли доступ. Открывайте приложение кнопкой ниже.", reply_markup=kb)
     await callback.answer()
 
