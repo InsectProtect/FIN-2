@@ -303,6 +303,10 @@
       <button type="button" id="bankAddIncomeBtn" class="primary" style="margin-top:10px;">Подтвердить как выручку «По счёту»</button>
       <div class="status" id="bankAddIncomeStatus"></div>
     </div>
+    <div class="card" id="bankLoanCard" style="display:none;">
+      <h3>Займы/кредиты — не учтены</h3>
+      <p class="forecast-note" id="bankLoanNote"></p>
+    </div>
   </div>
 </div>
 
@@ -939,6 +943,19 @@
     document.getElementById('bankTotalIncome').textContent = fmt(data.total_income || 0);
     document.getElementById('bankIncomeCount').textContent = String(data.income_count || 0);
     document.getElementById('bankIncomeCard').style.display = 'block';
+
+    var loanCard = document.getElementById('bankLoanCard');
+    var loanCount = data.excluded_loan_count || 0;
+    if (loanCount > 0) {
+      var parts = [];
+      if (data.excluded_loan_expenses) parts.push('расходы ' + fmt(data.excluded_loan_expenses));
+      if (data.excluded_loan_income) parts.push('доходы ' + fmt(data.excluded_loan_income));
+      document.getElementById('bankLoanNote').textContent =
+        'Найдено ' + loanCount + ' операц. похожих на заём/кредит (' + parts.join(', ') + ') — они не вошли в расходы и поступления выше.';
+      loanCard.style.display = 'block';
+    } else {
+      loanCard.style.display = 'none';
+    }
   }
 })();
 </script>
