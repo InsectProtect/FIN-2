@@ -118,8 +118,7 @@ def _authed_user(init_data: str) -> dict:
 async def api_summary(init_data: str, year: int = datetime.date.today().year):
     _authed_user(init_data)
     revenue = gsheets.get_revenue_by_month(year)
-    expenses = gsheets.get_expenses_by_month(year)
-    by_cat = gsheets.get_expenses_by_category(year)
+    expenses, by_cat = gsheets.get_expenses_summary(year)
     today = datetime.date.today()
     upcoming = today.month + 1 if today.month < 12 else 1
     kpis = forecast.build_kpis(revenue, expenses, upcoming if today.month < 12 else 13)
