@@ -57,6 +57,7 @@
   .card{background:var(--surface);border-radius:16px;padding:18px;margin-bottom:14px;}
   .card h3{font-size:14px;margin:0 0 12px;font-weight:650;}
   .kpi.good .value{color:var(--good);}
+  .kpi.bad .value{color:var(--critical);}
   .legend{display:flex;gap:14px;font-size:11px;color:var(--ink-2);margin-bottom:10px;flex-wrap:wrap;}
   .legend span{display:inline-flex;align-items:center;gap:5px;}
   .dot{width:8px;height:8px;border-radius:2px;display:inline-block;}
@@ -165,10 +166,11 @@
     </select>
 
     <div class="kpis" style="margin-top:14px;">
-      <div class="kpi"><div class="label" id="lblCash">Наличные (PRET C)</div><div class="value" id="kpiCash">—</div></div>
-      <div class="kpi"><div class="label" id="lblInvoice">По счёту (PRET F)</div><div class="value" id="kpiInvoice">—</div></div>
+      <div class="kpi"><div class="label" id="lblCash">Наличные</div><div class="value" id="kpiCash">—</div></div>
+      <div class="kpi"><div class="label" id="lblInvoice">По счёту</div><div class="value" id="kpiInvoice">—</div></div>
+      <div class="kpi wide"><div class="label" id="lblTotalRevenue">Общая выручка</div><div class="value" id="kpiTotalRevenue">—</div></div>
       <div class="kpi"><div class="label" id="lblExpenses">Расходы</div><div class="value" id="kpiExpenses">—</div></div>
-      <div class="kpi good"><div class="label" id="lblProfit">Прибыль</div><div class="value" id="kpiProfit">—</div></div>
+      <div class="kpi" id="kpiProfitTile"><div class="label" id="lblProfit">Прибыль</div><div class="value" id="kpiProfit">—</div></div>
     </div>
 
     <div class="card">
@@ -443,12 +445,18 @@
     }
     document.getElementById('lblCash').textContent = 'Наличные (' + periodLabel + ')';
     document.getElementById('lblInvoice').textContent = 'По счёту (' + periodLabel + ')';
+    document.getElementById('lblTotalRevenue').textContent = 'Общая выручка (' + periodLabel + ')';
     document.getElementById('lblExpenses').textContent = 'Расходы (' + periodLabel + ')';
     document.getElementById('lblProfit').textContent = 'Прибыль (' + periodLabel + ')';
     document.getElementById('kpiCash').textContent = fmt(cashSum);
     document.getElementById('kpiInvoice').textContent = fmt(invSum);
+    document.getElementById('kpiTotalRevenue').textContent = fmt(cashSum + invSum);
     document.getElementById('kpiExpenses').textContent = fmt(expSum);
-    document.getElementById('kpiProfit').textContent = fmt(cashSum + invSum - expSum);
+    var profit = cashSum + invSum - expSum;
+    document.getElementById('kpiProfit').textContent = fmt(profit);
+    var profitTile = document.getElementById('kpiProfitTile');
+    profitTile.classList.remove('good', 'bad');
+    profitTile.classList.add(profit < 0 ? 'bad' : 'good');
 
     // График — всегда на весь год, с подсветкой выбранного месяца
     var max = Math.max.apply(null, months.map(function(_, i){
