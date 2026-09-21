@@ -14,11 +14,20 @@ Statement с колонками N/O | Дата операции | No doc. | Ко
 """
 import io
 import re
+from collections import defaultdict
 
 import pdfplumber
 
 _PERIOD_RE = re.compile(r"за период\s+(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})")
 _DATE_RE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
+
+
+def _month_key(date_ddmmyyyy: str) -> str:
+    """'21.09.2026' -> '2026-09' — нужно, чтобы правильно раскладывать суммы
+    по месяцам, даже если выписка загружена одним PDF-документом сразу за
+    несколько месяцев (например, с начала года), а не помесячно."""
+    d, m, y = date_ddmmyyyy.split(".")
+    return f"{y}-{m}"
 
 
 def _to_float(raw: str) -> float:
@@ -33,15 +42,25 @@ def _to_float(raw: str) -> float:
 
 def parse_bank_statement(pdf_bytes: bytes) -> dict:
     """{"period_from":.., "period_to":.., "total_expenses":.., "count":..,
-    "items": [...], "total_income":.., "income_count":..}
+    "items": [...], "total_income":.., "income_count":..,
+    "expenses_by_month": {"YYYY-MM": сумма, ...}, "income_by_month": {...}}
+
     total_expenses/items — сумма и строки по колонке «Дебет» (расходы).
     total_income/income_count — сумма и количество операций по колонке
     «Кредит» (поступления/перечисления), без построчной расшифровки —
-    нужна только итоговая сумма."""
+    нужна только итоговая сумма.
+
+    expenses_by_month/income_by_month — те же суммы, но разложенные по
+    месяцу РЕАЛЬНОЙ даты операции. Это важно, если выписка загружается
+    одним PDF сразу за несколько месяцев (например, с начала года) — тогда
+    общую сумму нельзя целиком приписывать одному месяцу, а нужно
+    раскладывать по датам самих операций."""
     items = []
     total_expenses = 0.0
     total_income = 0.0
     income_count = 0
+    expenses_by_month = defaultdict(float)
+    income_by_month = defaultdict(float)
     period_from = period_to = None
 
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -73,9 +92,11 @@ def parse_bank_statement(pdf_bytes: bytes) -> dict:
                             "amount": round(debit_val, 2),
                         })
                         total_expenses += debit_val
+                        expenses_by_month[_month_key(date)] += debit_val
                     elif credit_val > 0:
                         total_income += credit_val
                         income_count += 1
+                        income_by_month[_month_key(date)] += credit_val
 
     items.sort(key=lambda x: x["date"])
     return {
@@ -86,4 +107,6 @@ def parse_bank_statement(pdf_bytes: bytes) -> dict:
         "items": items,
         "total_income": round(total_income, 2),
         "income_count": income_count,
+        "expenses_by_month": {k: round(v, 2) for k, v in expenses_by_month.items()},
+        "income_by_month": {k: round(v, 2) for k, v in income_by_month.items()},
     }
