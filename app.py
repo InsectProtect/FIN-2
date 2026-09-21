@@ -9,10 +9,10 @@ import os
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
-                            KeyboardButton, Message, ReplyKeyboardMarkup,
-                            WebAppInfo)
-from fastapi import FastAPI, HTTPException, Request
+from aiogram.types import (BufferedInputFile, InlineKeyboardButton,
+                            InlineKeyboardMarkup, KeyboardButton, Message,
+                            ReplyKeyboardMarkup, WebAppInfo)
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -155,27 +155,66 @@ async def api_report(init_data: str, year: int = datetime.date.today().year):
 
 
 @app.post("/api/expense")
-async def api_add_expense(request: Request):
-    body = await request.json()
-    init_data = body.get("init_data", "")
+async def api_add_expense(
+    init_data: str = Form(...),
+    date: str = Form(...),
+    category: str = Form(...),
+    description: str = Form(...),
+    account: str = Form(...),
+    currency: str = Form(...),
+    amount: float = Form(...),
+    rate: float = Form(1),
+    receipt: UploadFile | None = File(None),
+):
     user = _authed_user(init_data)
+    added_by = user.get("first_name", str(user["id"]))
 
-    required = ["date", "category", "description", "account", "currency", "amount"]
-    if any(k not in body for k in required):
-        raise HTTPException(400, "Не хватает полей.")
+    has_doc = "Нет"
+    if receipt is not None and receipt.filename:
+        has_doc = "Да"
+        try:
+            await _send_receipt_to_admin(
+                receipt, date=date, category=category, description=description,
+                amount=amount, currency=currency, added_by=added_by,
+            )
+        except Exception:
+            # Даже если отправка чека в Telegram не удалась, расход всё
+            # равно должен сохраниться в таблице — не блокируем на этом.
+            has_doc = "Да (ошибка отправки)"
 
     gsheets.add_expense(
-        date=body["date"],
-        category=body["category"],
-        description=body["description"],
-        account=body["account"],
-        currency=body["currency"],
-        amount=float(body["amount"]),
-        rate=float(body.get("rate") or 1),
-        has_doc=body.get("has_doc", "Нет"),
-        added_by=user.get("first_name", str(user["id"])),
+        date=date,
+        category=category,
+        description=description,
+        account=account,
+        currency=currency,
+        amount=amount,
+        rate=rate,
+        has_doc=has_doc,
+        added_by=added_by,
     )
     return {"ok": True}
+
+
+async def _send_receipt_to_admin(receipt: UploadFile, *, date: str, category: str,
+                                  description: str, amount: float, currency: str,
+                                  added_by: str) -> None:
+    data = await receipt.read()
+    caption = (
+        f"🧾 Чек к расходу\n"
+        f"Дата: {date}\n"
+        f"Категория: {category}\n"
+        f"Описание: {description}\n"
+        f"Сумма: {amount} {currency}\n"
+        f"Добавил(а): {added_by}"
+    )
+    filename = receipt.filename or "receipt"
+    content_type = (receipt.content_type or "").lower()
+    file_obj = BufferedInputFile(data, filename=filename)
+    if content_type.startswith("image/"):
+        await bot.send_photo(ADMIN_ID, photo=file_obj, caption=caption)
+    else:
+        await bot.send_document(ADMIN_ID, document=file_obj, caption=caption)
 
 
 # ---------------------------------------------------------------- запуск бота вместе с сервером
