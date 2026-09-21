@@ -10,12 +10,14 @@
     --bg:#ffffff;--surface:#f5f5f7;--ink:#1d1d1f;--ink-2:#6e6e73;--ink-3:#86868b;
     --accent:#f27b21;--accent-ink:#ffffff;--good:#248a3d;--good-bg:#e6f6ea;
     --critical:#d70015;--border:#d2d2d7;
+    --pest-cockroach:#f27b21;--pest-bedbug:#0071e3;--pest-flying:#248a3d;--pest-rodent:#af52de;--pest-other:#86868b;
   }
   @media (prefers-color-scheme: dark){
     :root{
       --bg:#000000;--surface:#1c1c1e;--ink:#f5f5f7;--ink-2:#a1a1a6;--ink-3:#8a8a8e;
       --accent:#ff8c42;--accent-ink:#1d1d1f;--good:#32d74b;--good-bg:rgba(50,215,75,.14);
       --critical:#ff453a;--border:#38383a;
+      --pest-cockroach:#d9670f;--pest-bedbug:#2f7fd6;--pest-flying:#2a9c4c;--pest-rodent:#a545df;--pest-other:#8a8a8e;
     }
   }
   *{box-sizing:border-box;}
@@ -40,7 +42,7 @@
   }
   h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:8px 0 4px;}
   .sub{font-size:13px;color:var(--ink-2);margin:0 0 20px;}
-  .brand{display:flex;align-items:center;gap:12px;margin:6px 0 24px;}
+  .brand{display:flex;align-items:center;gap:12px;margin:28px 0 24px;}
   .brand-mark{width:38px;height:38px;border-radius:10px;background:var(--accent);color:var(--accent-ink);
     display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;letter-spacing:-.02em;flex-shrink:0;}
   .brand-text{line-height:1.2;}
@@ -129,6 +131,21 @@
   .svc-tile .name{font-size:12px;color:var(--ink-2);margin-bottom:6px;}
   .svc-tile .count{font-size:19px;font-weight:700;letter-spacing:-.01em;}
   .svc-tile .rev{font-size:12px;color:var(--ink-2);margin-top:2px;}
+
+  .donut-wrap{display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-bottom:16px;}
+  .donut{width:128px;height:128px;border-radius:50%;flex-shrink:0;position:relative;background:var(--border);}
+  .donut::after{content:'';position:absolute;inset:20px;border-radius:50%;background:var(--surface);
+    display:flex;align-items:center;justify-content:center;}
+  .donut-total{position:absolute;inset:20px;border-radius:50%;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;}
+  .donut-total .n{font-size:16px;font-weight:700;letter-spacing:-.01em;}
+  .donut-total .l{font-size:10px;color:var(--ink-2);margin-top:1px;}
+  .donut-legend{display:flex;flex-direction:column;gap:8px;font-size:13px;flex:1;min-width:160px;}
+  .donut-legend .row{display:flex;align-items:center;gap:8px;}
+  .donut-legend .dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+  .donut-legend .name{color:var(--ink);}
+  .donut-legend .amt{color:var(--ink-2);font-size:12px;margin-left:2px;}
+  .donut-legend .pct{font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums;}
 </style>
 </head>
 <body>
@@ -199,6 +216,10 @@
 
     <div class="card">
       <h3 id="svcTitle">По видам вредителей (весь год)</h3>
+      <div class="donut-wrap">
+        <div class="donut" id="svcDonut"><div class="donut-total" id="svcDonutTotal"><div class="n">—</div><div class="l">выз.</div></div></div>
+        <div class="donut-legend" id="svcLegend"></div>
+      </div>
       <div class="svc-grid" id="svcGrid"></div>
       <p class="forecast-note" id="svcOtherNote"></p>
     </div>
@@ -522,6 +543,54 @@
   }
 
   var MAIN_SERVICE_KEYS = ["cockroach", "bedbug", "flying", "rodent"];
+  var SERVICE_LABEL_FALLBACK = {cockroach: "Тараканы", bedbug: "Клопы", flying: "Летающие", rodent: "Грызуны"};
+  var PEST_COLOR_VARS = {
+    cockroach: "--pest-cockroach", bedbug: "--pest-bedbug",
+    flying: "--pest-flying", rodent: "--pest-rodent", other: "--pest-other",
+  };
+
+  function renderPestDonut(list){
+    var donut = document.getElementById('svcDonut');
+    var legend = document.getElementById('svcLegend');
+    var totalEl = document.getElementById('svcDonutTotal');
+    if (!donut || !legend) return;
+
+    // Круговая диаграмма по проценту вызовов (сколько раз встретился каждый
+    // вид вредителя), а не по выручке — так нагляднее видно, кто "чаще всего".
+    var totalCount = list.reduce(function(a, item){ return a + (item.count || 0); }, 0);
+    legend.innerHTML = '';
+
+    if (totalCount === 0) {
+      donut.style.background = 'var(--border)';
+      totalEl.querySelector('.n').textContent = '0';
+      return;
+    }
+
+    var stops = [];
+    var acc = 0;
+    list.forEach(function(item){
+      if (!item.count) return;
+      var share = item.count / totalCount;
+      var from = acc * 100, to = (acc + share) * 100;
+      acc += share;
+      var color = 'var(' + (PEST_COLOR_VARS[item.key] || '--pest-other') + ')';
+      stops.push(color + ' ' + from.toFixed(2) + '%' + ' ' + to.toFixed(2) + '%');
+
+      var pct = Math.round(share * 100);
+      var row = document.createElement('div'); row.className = 'row';
+      var dot = document.createElement('div'); dot.className = 'dot'; dot.style.background = color;
+      var name = document.createElement('div'); name.className = 'name'; name.textContent = item.label || item.key;
+      var amt = document.createElement('div'); amt.className = 'amt'; amt.textContent = '(' + item.count + ' выз.)';
+      var pctEl = document.createElement('div'); pctEl.className = 'pct'; pctEl.textContent = pct + '%';
+      row.appendChild(dot); row.appendChild(name); row.appendChild(amt); row.appendChild(pctEl);
+      legend.appendChild(row);
+    });
+
+    donut.style.background = stops.length
+      ? 'conic-gradient(' + stops.join(', ') + ')'
+      : 'var(--border)';
+    totalEl.querySelector('.n').textContent = String(totalCount);
+  }
 
   function renderServices(byMonth, periodLabel){
     var grid = document.getElementById('svcGrid');
@@ -575,6 +644,15 @@
         ? 'Другое (муравьи, осы, блохи): ' + otherCount + ' выз., ' + fmt(otherTotal)
         : '';
     }
+
+    var pestList = MAIN_SERVICE_KEYS.map(function(key){
+      var item = byKey[key] || {label: '', count: 0, total: 0};
+      return {key: key, label: item.label || SERVICE_LABEL_FALLBACK[key], count: item.count, total: item.total};
+    });
+    if (otherCount > 0) {
+      pestList.push({key: 'other', label: 'Другое', count: otherCount, total: otherTotal});
+    }
+    renderPestDonut(pestList);
   }
 
   function loadSummary(){
