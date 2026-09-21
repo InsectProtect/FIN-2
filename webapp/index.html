@@ -272,10 +272,6 @@
       <button type="button" id="bankAddBtn" class="primary" style="margin-top:10px;">Добавить эту сумму в «Расходы» (одной записью)</button>
       <div class="status" id="bankAddStatus"></div>
     </div>
-    <div class="card" id="bankListCard" style="display:none;">
-      <h3>Операции из выписки (расходы)</h3>
-      <div id="bankList"></div>
-    </div>
   </div>
 </div>
 
@@ -724,7 +720,6 @@
     btn.disabled = true;
     status.textContent = 'Читаем выписку...'; status.className = 'status';
     document.getElementById('bankResultCard').style.display = 'none';
-    document.getElementById('bankListCard').style.display = 'none';
 
     var fd = new FormData();
     fd.append('init_data', initData);
@@ -793,21 +788,6 @@
       diffNote.textContent = '';
     }
     document.getElementById('bankResultCard').style.display = 'block';
-
-    var list = document.getElementById('bankList');
-    list.innerHTML = '';
-    (data.items || []).forEach(function(item){
-      var el = document.createElement('div'); el.className = 'hist-item';
-      var top = document.createElement('div'); top.className = 'top';
-      var d = document.createElement('span'); d.textContent = item.date;
-      var c = document.createElement('span'); c.textContent = item.counterparty;
-      top.appendChild(d); top.appendChild(c);
-      var desc = document.createElement('div'); desc.className = 'desc'; desc.textContent = item.description || '';
-      var amount = document.createElement('div'); amount.className = 'amount'; amount.textContent = fmt(item.amount);
-      el.appendChild(top); el.appendChild(desc); el.appendChild(amount);
-      list.appendChild(el);
-    });
-    document.getElementById('bankListCard').style.display = (data.items || []).length ? 'block' : 'none';
   }
 })();
 </script>
