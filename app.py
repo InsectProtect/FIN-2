@@ -13,7 +13,7 @@ from aiogram.types import (BufferedInputFile, InlineKeyboardButton,
                             InlineKeyboardMarkup, KeyboardButton, Message,
                             ReplyKeyboardMarkup, WebAppInfo)
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
@@ -35,6 +35,11 @@ dp = Dispatcher()
 
 app = FastAPI()
 app.mount("/app", StaticFiles(directory="webapp", html=True), name="webapp")
+
+
+@app.get("/")
+async def root_redirect():
+    return RedirectResponse(url="/app/")
 
 
 # ---------------------------------------------------------------- бот
