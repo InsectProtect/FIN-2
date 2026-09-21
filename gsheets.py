@@ -206,15 +206,19 @@ def add_expense(date: str, category: str, description: str, account: str,
     ], value_input_option="USER_ENTERED")
 
 
-def get_expenses_summary(year: int) -> tuple[dict, dict]:
-    """Возвращает (by_month, by_category) — оба словаря считаются из ОДНОГО
-    чтения листа «Расходы», а не из двух отдельных запросов."""
+def get_expenses_summary(year: int) -> tuple[dict, dict, dict]:
+    """Возвращает (by_month, by_category, by_month_category) — все три
+    словаря считаются из ОДНОГО чтения листа «Расходы», а не из отдельных
+    запросов. by_month_category — {month: {category: сумма}} — нужен для
+    отчёта за конкретный месяц (раздел «Расходы по категориям» там должен
+    показывать категории только этого месяца, а не всего года)."""
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     ws = sh.worksheet("Расходы")
     rows = ws.get_all_values()[4:]  # первые 4 строки — заголовок/пояснения
 
     by_month = defaultdict(float)
     by_category = defaultdict(float)
+    by_month_category = defaultdict(lambda: defaultdict(float))
     for row in rows:
         if len(row) < 9 or not row[0]:
             continue
@@ -226,7 +230,8 @@ def get_expenses_summary(year: int) -> tuple[dict, dict]:
         amount = _to_float(row[8])
         by_month[d.month] += amount
         by_category[row[2]] += amount
-    return by_month, by_category
+        by_month_category[d.month][row[2]] += amount
+    return by_month, by_category, by_month_category
 
 
 # Оставлены для обратной совместимости (используют то же кэширование).
