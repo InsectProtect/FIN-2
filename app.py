@@ -121,17 +121,20 @@ async def api_summary(init_data: str, year: int = datetime.date.today().year):
     expenses, by_cat = gsheets.get_expenses_summary(year)
     today = datetime.date.today()
     upcoming = today.month + 1 if today.month < 12 else 1
-    kpis = forecast.build_kpis(revenue, expenses, upcoming if today.month < 12 else 13)
+
+    revenue_total = {m: v["total"] for m, v in revenue.items()}
+    kpis = forecast.build_kpis(revenue_total, expenses, upcoming if today.month < 12 else 13)
 
     months = list(range(1, 13))
+    empty = {"cash": 0, "invoice": 0, "total": 0}
     return JSONResponse({
-        "revenue_by_month": {m: revenue.get(m, 0) for m in months},
+        "revenue_by_month": {m: revenue.get(m, empty)["total"] for m in months},
+        "revenue_cash_by_month": {m: revenue.get(m, empty)["cash"] for m in months},
+        "revenue_invoice_by_month": {m: revenue.get(m, empty)["invoice"] for m in months},
         "expenses_by_month": {m: expenses.get(m, 0) for m in months},
         "expenses_by_category": by_cat,
         "kpis": kpis,
     })
-
-
 @app.post("/api/expense")
 async def api_add_expense(request: Request):
     body = await request.json()
