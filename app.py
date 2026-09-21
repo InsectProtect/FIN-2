@@ -306,6 +306,20 @@ async def api_bank_statement_apply(
     return {"ok": True}
 
 
+@app.post("/api/bank_statement/apply_income")
+async def api_bank_statement_apply_income(
+    init_data: str = Form(...),
+    pin: str = Form(""),
+    date: str = Form(...),
+    period_from: str = Form(...),
+    period_to: str = Form(...),
+    amount: float = Form(...),
+):
+    _authed_user(init_data, pin)
+    gsheets.upsert_bank_income(date=date, period_from=period_from, period_to=period_to, amount=amount)
+    return {"ok": True}
+
+
 async def _send_receipt_to_telegram(data: bytes, filename: str, content_type: str, *,
                                      date: str, category: str, description: str,
                                      amount: float, currency: str, added_by: str) -> None:
