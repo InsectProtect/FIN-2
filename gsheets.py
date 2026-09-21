@@ -282,3 +282,26 @@ def delete_expense(row: int) -> None:
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     ws = sh.worksheet("Расходы")
     ws.delete_rows(row)
+
+
+def get_expenses_total_in_range(date_from: str, date_to: str) -> float:
+    """Сумма (в MDL) расходов, внесённых в «Расходы», по датам в диапазоне
+    [date_from, date_to] включительно. date_from/date_to — в формате
+    ДД.ММ.ГГГГ (как в банковской выписке) — используется для сверки с
+    расходами, распознанными из PDF-выписки банка."""
+    d_from = datetime.datetime.strptime(date_from, "%d.%m.%Y")
+    d_to = datetime.datetime.strptime(date_to, "%d.%m.%Y")
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = sh.worksheet("Расходы")
+    rows = ws.get_all_values()[4:]
+
+    total = 0.0
+    for row in rows:
+        if len(row) < 9 or not row[0]:
+            continue
+        d = _parse_date(row[0])
+        if d is None:
+            continue
+        if d_from <= d <= d_to:
+            total += _to_float(row[8])
+    return round(total, 2)
