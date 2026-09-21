@@ -84,17 +84,25 @@ def get_revenue_by_month(year: int) -> dict:
     return out
 
 
-SERVICE_LABELS = {
-    "gandaci": "Тараканы",
-    "plosnite": "Клопы",
-    "zburatoare": "Летающие",
-    "rozatoare": "Грызуны",
-    "furnici": "Муравьи",
-    "viespi": "Осы",
-    "purici": "Блохи",
-    "infectie": "Дезинфекция",
+# Точные значения из выпадающего списка «Daunatori» в таблице (скриншот
+# пользователя): plosnita, roscat, negru, zburatoare, rozatoare, purici,
+# furnici, viespe. "roscat" и "negru" — это два вида тараканов (рыжий и
+# чёрный), поэтому оба относятся к группе "Тараканы".
+SERVICE_GROUPS = {
+    "roscat": "cockroach",
+    "negru": "cockroach",
+    "plosnita": "bedbug",
+    "zburatoare": "flying",
+    "rozatoare": "rodent",
 }
-SERVICE_ORDER = ["gandaci", "plosnite", "zburatoare", "rozatoare", "furnici", "viespi", "purici", "infectie"]
+SERVICE_LABELS = {
+    "cockroach": "Тараканы",
+    "bedbug": "Клопы",
+    "flying": "Летающие",
+    "rodent": "Грызуны",
+    "other": "Другое",
+}
+SERVICE_ORDER = ["cockroach", "bedbug", "flying", "rodent"]
 
 
 def get_revenue_by_service(year: int) -> dict:
@@ -138,7 +146,7 @@ def get_revenue_by_service(year: int) -> dict:
                     raw = row[daun_col].strip().lower() if daun_col < len(row) else ""
                     if not raw and total == 0:
                         continue  # пустая строка-разделитель между днями
-                    key = raw if raw in stats else "other"
+                    key = SERVICE_GROUPS.get(raw, "other")
                     stats[key]["count"] += 1
                     stats[key]["total"] += total
         out[month_i] = _service_stats_to_list(stats)
