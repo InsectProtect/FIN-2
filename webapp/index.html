@@ -856,15 +856,17 @@
     var fd = new FormData();
     fd.append('init_data', initData);
     fd.append('pin', pin);
-    fd.append('date', toISODate(lastBankData.period_to));
     fd.append('period_from', lastBankData.period_from);
     fd.append('period_to', lastBankData.period_to);
-    fd.append('amount', lastBankData.total_expenses);
+    fd.append('by_month', JSON.stringify(lastBankData.expenses_by_month || {}));
 
     fetch('/api/bank_statement/apply', { method: 'POST', body: fd })
       .then(function(r){ if (!r.ok) throw new Error(); return r.json(); })
       .then(function(){
-        status.textContent = 'Готово — сумма учтена в общих расходах за этот месяц. Если загрузите ту же выписку ещё раз, запись обновится, а не задвоится. Найти её можно во вкладке «История».';
+        var monthCount = Object.keys(lastBankData.expenses_by_month || {}).length;
+        status.textContent = monthCount > 1
+          ? 'Готово — сумма распределена по ' + monthCount + ' месяцам (по датам операций в выписке) и учтена в расходах за каждый из них. Повторная загрузка той же выписки обновит суммы, а не задвоит их.'
+          : 'Готово — сумма учтена в общих расходах за этот месяц. Если загрузите ту же выписку ещё раз, запись обновится, а не задвоится. Найти её можно во вкладке «История».';
         status.className = 'status ok';
         if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         loadSummary();
@@ -886,15 +888,17 @@
     var fd = new FormData();
     fd.append('init_data', initData);
     fd.append('pin', pin);
-    fd.append('date', toISODate(lastBankData.period_to));
     fd.append('period_from', lastBankData.period_from);
     fd.append('period_to', lastBankData.period_to);
-    fd.append('amount', lastBankData.total_income);
+    fd.append('by_month', JSON.stringify(lastBankData.income_by_month || {}));
 
     fetch('/api/bank_statement/apply_income', { method: 'POST', body: fd })
       .then(function(r){ if (!r.ok) throw new Error(); return r.json(); })
       .then(function(){
-        status.textContent = 'Готово — сумма учтена как выручка «По счёту» за этот месяц на главном экране. Повторная загрузка той же выписки обновит сумму, а не задвоит её.';
+        var monthCount = Object.keys(lastBankData.income_by_month || {}).length;
+        status.textContent = monthCount > 1
+          ? 'Готово — выручка «По счёту» распределена по ' + monthCount + ' месяцам (по датам операций в выписке). Повторная загрузка той же выписки обновит суммы, а не задвоит их.'
+          : 'Готово — сумма учтена как выручка «По счёту» за этот месяц на главном экране. Повторная загрузка той же выписки обновит сумму, а не задвоит её.';
         status.className = 'status ok';
         if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         loadSummary();
