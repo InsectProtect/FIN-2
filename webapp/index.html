@@ -288,7 +288,17 @@
 (function(){
   var tg = window.Telegram && window.Telegram.WebApp;
   var initData = tg ? tg.initDataUnsafe && tg.initData : "";
-  if (tg) { tg.ready(); tg.expand(); }
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    // На компьютере (Telegram Desktop) разворачивает мини-приложение на
+    // весь размер окна Telegram, а не маленьким всплывающим блоком.
+    // Само окно Telegram при этом не становится отдельным окном ОС —
+    // это ограничение самого Telegram, а не приложения — но места
+    // становится намного больше. Поддерживается не всеми версиями
+    // клиента, поэтому оборачиваем в try/catch.
+    try { if (typeof tg.requestFullscreen === 'function') tg.requestFullscreen(); } catch (e) {}
+  }
 
   if (!initData) {
     var debug = "tg существует: " + (!!tg) +
