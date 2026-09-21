@@ -5,6 +5,7 @@
 """
 import asyncio
 import datetime
+import json
 import os
 
 from aiogram import Bot, Dispatcher, F
@@ -294,15 +295,17 @@ async def api_bank_statement(
 async def api_bank_statement_apply(
     init_data: str = Form(...),
     pin: str = Form(""),
-    date: str = Form(...),
     period_from: str = Form(...),
     period_to: str = Form(...),
-    amount: float = Form(...),
+    by_month: str = Form(...),  # JSON: {"2026-09": 108169.49, ...}
 ):
     user = _authed_user(init_data, pin)
     added_by = user.get("first_name", str(user["id"]))
-    gsheets.upsert_bank_expense(date=date, period_from=period_from, period_to=period_to,
-                                 amount=amount, added_by=added_by)
+    months = json.loads(by_month)
+    for month_key, amount in months.items():
+        if amount and amount > 0:
+            gsheets.upsert_bank_expense(period_from=period_from, period_to=period_to,
+                                         month_key=month_key, amount=amount, added_by=added_by)
     return {"ok": True}
 
 
@@ -310,13 +313,16 @@ async def api_bank_statement_apply(
 async def api_bank_statement_apply_income(
     init_data: str = Form(...),
     pin: str = Form(""),
-    date: str = Form(...),
     period_from: str = Form(...),
     period_to: str = Form(...),
-    amount: float = Form(...),
+    by_month: str = Form(...),  # JSON: {"2026-09": 92603.04, ...}
 ):
     _authed_user(init_data, pin)
-    gsheets.upsert_bank_income(date=date, period_from=period_from, period_to=period_to, amount=amount)
+    months = json.loads(by_month)
+    for month_key, amount in months.items():
+        if amount and amount > 0:
+            gsheets.upsert_bank_income(period_from=period_from, period_to=period_to,
+                                        month_key=month_key, amount=amount)
     return {"ok": True}
 
 
