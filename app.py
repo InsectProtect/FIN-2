@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 import auth
 import forecast
+import gdrive
 import gsheets
 import report
 import users
@@ -170,17 +171,30 @@ async def api_add_expense(
     added_by = user.get("first_name", str(user["id"]))
 
     has_doc = "Нет"
+    receipt_link = ""
     if receipt is not None and receipt.filename:
         has_doc = "Да"
+        data = await receipt.read()
+        filename = receipt.filename or "receipt"
+        content_type = (receipt.content_type or "").lower()
+
         try:
-            await _send_receipt_to_admin(
-                receipt, date=date, category=category, description=description,
-                amount=amount, currency=currency, added_by=added_by,
+            await _send_receipt_to_telegram(
+                data, filename, content_type, date=date, category=category,
+                description=description, amount=amount, currency=currency, added_by=added_by,
             )
         except Exception:
             # Даже если отправка чека в Telegram не удалась, расход всё
             # равно должен сохраниться в таблице — не блокируем на этом.
-            has_doc = "Да (ошибка отправки)"
+            has_doc = "Да (ошибка отправки в Telegram)"
+
+        try:
+            drive_filename = f"{date}_{category}_{amount}{os.path.splitext(filename)[1] or ''}"
+            receipt_link = gdrive.upload_receipt(data, drive_filename, content_type)
+        except Exception:
+            # Если не получилось загрузить на Google Диск, расход всё равно
+            # сохраняем — просто без ссылки на чек в таблице.
+            pass
 
     gsheets.add_expense(
         date=date,
@@ -192,14 +206,14 @@ async def api_add_expense(
         rate=rate,
         has_doc=has_doc,
         added_by=added_by,
+        receipt_link=receipt_link,
     )
     return {"ok": True}
 
 
-async def _send_receipt_to_admin(receipt: UploadFile, *, date: str, category: str,
-                                  description: str, amount: float, currency: str,
-                                  added_by: str) -> None:
-    data = await receipt.read()
+async def _send_receipt_to_telegram(data: bytes, filename: str, content_type: str, *,
+                                     date: str, category: str, description: str,
+                                     amount: float, currency: str, added_by: str) -> None:
     caption = (
         f"🧾 Чек к расходу\n"
         f"Дата: {date}\n"
@@ -208,8 +222,6 @@ async def _send_receipt_to_admin(receipt: UploadFile, *, date: str, category: st
         f"Сумма: {amount} {currency}\n"
         f"Добавил(а): {added_by}"
     )
-    filename = receipt.filename or "receipt"
-    content_type = (receipt.content_type or "").lower()
     file_obj = BufferedInputFile(data, filename=filename)
     if content_type.startswith("image/"):
         await bot.send_photo(ADMIN_ID, photo=file_obj, caption=caption)
