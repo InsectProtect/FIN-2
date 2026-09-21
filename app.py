@@ -223,6 +223,41 @@ async def api_add_expense(
     return {"ok": True}
 
 
+@app.get("/api/expenses")
+async def api_list_expenses(init_data: str, pin: str = "", year: int = datetime.date.today().year,
+                             limit: int = 50):
+    _authed_user(init_data, pin)
+    return {"items": gsheets.list_expenses(year, limit)}
+
+
+@app.post("/api/expense/update")
+async def api_update_expense(
+    init_data: str = Form(...),
+    pin: str = Form(""),
+    row: int = Form(...),
+    date: str = Form(...),
+    category: str = Form(...),
+    description: str = Form(...),
+    account: str = Form(...),
+    currency: str = Form(...),
+    amount: float = Form(...),
+    rate: float = Form(1),
+):
+    _authed_user(init_data, pin)
+    gsheets.update_expense(
+        row=row, date=date, category=category, description=description,
+        account=account, currency=currency, amount=amount, rate=rate,
+    )
+    return {"ok": True}
+
+
+@app.post("/api/expense/delete")
+async def api_delete_expense(init_data: str = Form(...), pin: str = Form(""), row: int = Form(...)):
+    _authed_user(init_data, pin)
+    gsheets.delete_expense(row)
+    return {"ok": True}
+
+
 async def _send_receipt_to_telegram(data: bytes, filename: str, content_type: str, *,
                                      date: str, category: str, description: str,
                                      amount: float, currency: str, added_by: str) -> None:
