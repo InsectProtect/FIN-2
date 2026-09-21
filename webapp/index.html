@@ -149,6 +149,12 @@
   .donut-legend .amt{color:var(--ink-2);font-size:12px;margin-left:2px;}
   .donut-legend .pct{font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums;}
 
+  .cmp-picker{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}
+  .cmp-chip{padding:6px 12px;border-radius:10px;background:var(--surface);color:var(--ink-2);
+    font-size:12.5px;font-weight:600;cursor:pointer;user-select:none;border:1px solid var(--border);}
+  .cmp-chip.active{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);}
+  .cmp-picker-actions{display:flex;gap:14px;margin-top:8px;}
+  .cmp-picker-actions span{font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;user-select:none;}
   .cmp-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:14px;}
   .cmp-table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums;}
   .cmp-table th,.cmp-table td{padding:9px 10px;text-align:right;white-space:nowrap;}
@@ -357,7 +363,12 @@
   <div class="view" id="view-compare">
     <div class="card">
       <h3>Сравнение месяцев</h3>
-      <p class="forecast-note">Выручка, расходы, прибыль, количество заявок и средний чек по каждому месяцу — чтобы сразу видеть, где просадка или рост.</p>
+      <p class="forecast-note">Выберите, какие месяцы сравнивать — в таблице и в «Итого» ниже останутся только они.</p>
+      <div class="cmp-picker" id="cmpPicker"></div>
+      <div class="cmp-picker-actions">
+        <span id="cmpSelectAll">Выбрать все</span>
+        <span id="cmpSelectNone">Снять все</span>
+      </div>
       <div class="cmp-wrap">
         <table class="cmp-table">
           <thead>
@@ -590,7 +601,51 @@
     renderCompare(data);
   }
 
+  // Какие месяцы сейчас выбраны для сравнения — по умолчанию все 12,
+  // пользователь может снять/поставить нужные галочки-чипы. Хранится вне
+  // renderCompare, чтобы выбор не сбрасывался при каждом обновлении данных.
+  var cmpSelectedMonths = new Set([1,2,3,4,5,6,7,8,9,10,11,12]);
+  var cmpPickerBuilt = false;
+
+  function buildComparePicker(){
+    var picker = document.getElementById('cmpPicker');
+    if (!picker || cmpPickerBuilt) return;
+    cmpPickerBuilt = true;
+    months.forEach(function(m, i){
+      var monthNum = i + 1;
+      var chip = document.createElement('div');
+      chip.className = 'cmp-chip' + (cmpSelectedMonths.has(monthNum) ? ' active' : '');
+      chip.textContent = m;
+      chip.addEventListener('click', function(){
+        if (cmpSelectedMonths.has(monthNum)) {
+          cmpSelectedMonths.delete(monthNum);
+        } else {
+          cmpSelectedMonths.add(monthNum);
+        }
+        chip.classList.toggle('active');
+        renderCompareTable(lastData);
+      });
+      picker.appendChild(chip);
+    });
+
+    document.getElementById('cmpSelectAll').addEventListener('click', function(){
+      cmpSelectedMonths = new Set([1,2,3,4,5,6,7,8,9,10,11,12]);
+      picker.querySelectorAll('.cmp-chip').forEach(function(c){ c.classList.add('active'); });
+      renderCompareTable(lastData);
+    });
+    document.getElementById('cmpSelectNone').addEventListener('click', function(){
+      cmpSelectedMonths = new Set();
+      picker.querySelectorAll('.cmp-chip').forEach(function(c){ c.classList.remove('active'); });
+      renderCompareTable(lastData);
+    });
+  }
+
   function renderCompare(data){
+    buildComparePicker();
+    renderCompareTable(data);
+  }
+
+  function renderCompareTable(data){
     var tbody = document.getElementById('cmpBody');
     if (!tbody || !data) return;
     tbody.innerHTML = '';
@@ -601,6 +656,7 @@
 
     var totalRev = 0, totalExp = 0, totalCount = 0;
     for (var m = 1; m <= 12; m++) {
+      if (!cmpSelectedMonths.has(m)) continue;
       var r = rev[m] || 0, e = exp[m] || 0;
       var profit = r - e;
       var count = 0;
@@ -620,6 +676,15 @@
       tr.appendChild(tdMonth); tr.appendChild(tdRev); tr.appendChild(tdExp);
       tr.appendChild(tdProfit); tr.appendChild(tdCount); tr.appendChild(tdAvg);
       tbody.appendChild(tr);
+    }
+
+    if (!tbody.children.length) {
+      var emptyTr = document.createElement('tr');
+      var emptyTd = document.createElement('td');
+      emptyTd.colSpan = 6; emptyTd.textContent = 'Выберите хотя бы один месяц выше';
+      emptyTd.style.textAlign = 'center'; emptyTd.style.color = 'var(--ink-2)';
+      emptyTr.appendChild(emptyTd);
+      tbody.appendChild(emptyTr);
     }
 
     var totalProfit = totalRev - totalExp;
