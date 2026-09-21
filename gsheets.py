@@ -51,14 +51,16 @@ def _open(title: str) -> gspread.Spreadsheet:
 
 
 def get_revenue_by_month(year: int) -> dict:
-    """{month_index(1-12): revenue_mdl} из листов заказов «Ip 2026».
+    """{month_index(1-12): {"cash": ..., "invoice": ..., "total": ...}}
+    из листов заказов «Ip 2026» — наличные (PRET C*) и по счёту (PRET F)
+    считаются раздельно.
 
     Читает все 12 листов ОДНИМ batch-запросом (values_batch_get), а не по
     одному запросу на лист — иначе быстро упираемся в лимит API."""
     sh = _open(os.environ["SHEET_REVENUE_NAME"])
     existing_titles = {ws.title for ws in sh.worksheets()}
     ranges = [f"'{name}'" for name in MONTH_SHEETS if name in existing_titles]
-    out = defaultdict(float)
+    out = defaultdict(lambda: {"cash": 0.0, "invoice": 0.0, "total": 0.0})
     if not ranges:
         return out
 
@@ -75,9 +77,10 @@ def get_revenue_by_month(year: int) -> dict:
         for row in rows[1:]:
             for idx in cash_cols:
                 if idx < len(row):
-                    out[month_i] += _to_float(row[idx])
+                    out[month_i]["cash"] += _to_float(row[idx])
             if inv_col is not None and inv_col < len(row):
-                out[month_i] += _to_float(row[inv_col])
+                out[month_i]["invoice"] += _to_float(row[inv_col])
+        out[month_i]["total"] = out[month_i]["cash"] + out[month_i]["invoice"]
     return out
 
 
