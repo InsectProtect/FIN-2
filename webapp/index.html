@@ -266,7 +266,7 @@
   <div class="view" id="view-bank">
     <div class="card">
       <h3>Сверка с банковской выпиской</h3>
-      <p class="forecast-note">Загрузите PDF-выписку по счёту (как есть, из интернет-банкинга) — приложение само найдёт в ней все списания (расходы) и сравнит их сумму с тем, что уже внесено в таблицу «Расходы» за тот же период.</p>
+      <p class="forecast-note">Загрузите PDF-выписку по счёту (как есть, из интернет-банкинга) — приложение само найдёт в ней списания (расходы) и поступления (выручку «по счёту»). Колонка PRET F в таблице заказов больше не учитывается — «По счёту» теперь считается только из подтверждённых сумм по выписке.</p>
       <input type="file" id="bankFile" accept="application/pdf" style="margin-top:10px;width:100%;">
       <button type="button" id="bankUploadBtn" class="primary" style="margin-top:10px;">Загрузить и сверить</button>
       <div class="status" id="bankStatus"></div>
@@ -280,6 +280,16 @@
       <p class="forecast-note" id="bankDiffNote"></p>
       <button type="button" id="bankAddBtn" class="primary" style="margin-top:10px;">Добавить эту сумму в «Расходы» (одной записью)</button>
       <div class="status" id="bankAddStatus"></div>
+    </div>
+    <div class="card" id="bankIncomeCard" style="display:none;">
+      <h3>Поступления по выписке («По счёту»)</h3>
+      <div class="kpis" style="margin-bottom:0;">
+        <div class="kpi"><div class="label">Сумма поступлений</div><div class="value" id="bankTotalIncome">—</div></div>
+        <div class="kpi"><div class="label">Операций</div><div class="value" id="bankIncomeCount">—</div></div>
+      </div>
+      <p class="forecast-note">Эта сумма станет выручкой «по счёту» за месяц периода выписки на главном экране — после подтверждения ниже.</p>
+      <button type="button" id="bankAddIncomeBtn" class="primary" style="margin-top:10px;">Подтвердить как выручку «По счёту»</button>
+      <div class="status" id="bankAddIncomeStatus"></div>
     </div>
   </div>
 </div>
@@ -739,6 +749,7 @@
     btn.disabled = true;
     status.textContent = 'Читаем выписку...'; status.className = 'status';
     document.getElementById('bankResultCard').style.display = 'none';
+    document.getElementById('bankIncomeCard').style.display = 'none';
 
     var fd = new FormData();
     fd.append('init_data', initData);
@@ -783,10 +794,41 @@
       });
   });
 
+  document.getElementById('bankAddIncomeBtn').addEventListener('click', function(){
+    if (!lastBankData || !lastBankData.period_to) return;
+    var btn = this;
+    var status = document.getElementById('bankAddIncomeStatus');
+    btn.disabled = true;
+    status.textContent = 'Подтверждаем...'; status.className = 'status';
+
+    var fd = new FormData();
+    fd.append('init_data', initData);
+    fd.append('pin', pin);
+    fd.append('date', toISODate(lastBankData.period_to));
+    fd.append('period_from', lastBankData.period_from);
+    fd.append('period_to', lastBankData.period_to);
+    fd.append('amount', lastBankData.total_income);
+
+    fetch('/api/bank_statement/apply_income', { method: 'POST', body: fd })
+      .then(function(r){ if (!r.ok) throw new Error(); return r.json(); })
+      .then(function(){
+        status.textContent = 'Готово — сумма учтена как выручка «По счёту» за этот месяц на главном экране. Повторная загрузка той же выписки обновит сумму, а не задвоит её.';
+        status.className = 'status ok';
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        loadSummary();
+      })
+      .catch(function(){
+        status.textContent = 'Не удалось подтвердить. Попробуйте ещё раз.'; status.className = 'status err';
+        btn.disabled = false;
+      });
+  });
+
   function renderBankResult(data){
     lastBankData = data;
     document.getElementById('bankAddBtn').disabled = false;
     document.getElementById('bankAddStatus').textContent = '';
+    document.getElementById('bankAddIncomeBtn').disabled = false;
+    document.getElementById('bankAddIncomeStatus').textContent = '';
     var title = document.getElementById('bankPeriodTitle');
     title.textContent = (data.period_from && data.period_to)
       ? 'Период: ' + data.period_from + ' — ' + data.period_to
@@ -807,6 +849,10 @@
       diffNote.textContent = '';
     }
     document.getElementById('bankResultCard').style.display = 'block';
+
+    document.getElementById('bankTotalIncome').textContent = fmt(data.total_income || 0);
+    document.getElementById('bankIncomeCount').textContent = String(data.income_count || 0);
+    document.getElementById('bankIncomeCard').style.display = 'block';
   }
 })();
 </script>
