@@ -122,6 +122,12 @@
       </div>
       <p class="forecast-note">Простой прогноз по тренду последних месяцев. Пришлите контекст (сезонность, известные будущие заказы) в чат с Claude — прогноз можно уточнить вручную.</p>
     </div>
+
+    <div class="card">
+      <h3>Отчёт</h3>
+      <button class="primary" id="downloadReportBtn" type="button">Скачать отчёт (PDF)</button>
+      <div class="status" id="reportStatus"></div>
+    </div>
   </div>
 
   <div class="view" id="view-add">
@@ -309,6 +315,19 @@
       });
   }
   loadSummary();
+
+  document.getElementById('downloadReportBtn').addEventListener('click', function(){
+    var status = document.getElementById('reportStatus');
+    status.textContent = 'Готовим файл...'; status.className = 'status';
+    var url = window.location.origin + '/api/report?init_data=' + encodeURIComponent(initData) + '&year=' + new Date().getFullYear();
+    if (tg && tg.openLink) {
+      tg.openLink(url);
+    } else {
+      window.open(url, '_blank');
+    }
+    status.textContent = 'Отчёт открывается в браузере — оттуда его можно сохранить.';
+    status.className = 'status ok';
+  });
 
   document.getElementById('submitBtn').addEventListener('click', function(){
     var btn = this, status = document.getElementById('status');
