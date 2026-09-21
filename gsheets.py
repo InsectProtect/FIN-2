@@ -85,11 +85,26 @@ def get_revenue_by_month(year: int) -> dict:
 
 
 def _to_float(v: str) -> float:
-    v = (v or "").strip().replace(",", ".")
+    v = (v or "").strip().replace("\xa0", "").replace(" ", "").replace(",", ".")
     try:
         return float(v)
     except ValueError:
         return 0.0
+
+
+# Даты в «Расходы» бывают двух видов: "2026-09-21" (когда расход добавлен
+# через Mini App) и "21.09.2026" (когда строку вписали в таблицу вручную).
+_DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y")
+
+
+def _parse_date(v: str):
+    v = (v or "").strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.datetime.strptime(v, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 def add_expense(date: str, category: str, description: str, account: str,
@@ -117,9 +132,8 @@ def get_expenses_summary(year: int) -> tuple[dict, dict]:
     for row in rows:
         if len(row) < 9 or not row[0]:
             continue
-        try:
-            d = datetime.datetime.strptime(row[0], "%Y-%m-%d")
-        except ValueError:
+        d = _parse_date(row[0])
+        if d is None:
             continue
         if d.year != year:
             continue
