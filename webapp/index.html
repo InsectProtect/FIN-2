@@ -101,9 +101,14 @@
     width:100%;max-width:220px;margin:0 auto;display:block;text-align:center;
     font-size:28px;letter-spacing:10px;padding:14px 10px 14px 20px;
   }
-  .hist-month-header{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;font-weight:700;
-    color:var(--ink-2);margin:18px 0 8px;padding:0 2px;}
+  .hist-month-header{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;
+    color:var(--ink);margin:14px 0 0;padding:12px 14px;background:var(--surface);border-radius:12px;cursor:pointer;user-select:none;}
   .hist-month-header:first-child{margin-top:0;}
+  .hist-month-header .chevron{display:inline-block;margin-right:8px;font-size:11px;color:var(--ink-2);transition:transform .15s;}
+  .hist-month-header.open .chevron{transform:rotate(90deg);}
+  .hist-month-header .name{display:flex;align-items:center;}
+  .hist-month-items{display:none;padding-top:8px;}
+  .hist-month-items.open{display:block;}
   .hist-item{background:var(--surface);border-radius:12px;padding:12px 14px;margin-bottom:8px;}
   .hist-item .top{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--ink-2);}
   .hist-item .desc{font-size:14px;font-weight:600;margin:4px 0 2px;}
@@ -262,6 +267,8 @@
   </div>
 
   <div class="view" id="view-history">
+    <label style="margin-top:0;">Год</label>
+    <select id="historyYear"></select>
     <div class="status" id="historyStatus">Загружаем...</div>
     <div id="historyList"></div>
   </div>
@@ -391,6 +398,16 @@
     selectedMonth = this.value;
     if (lastData) render(lastData);
   });
+
+  var historyYearSelect = document.getElementById('historyYear');
+  var currentYear = new Date().getFullYear();
+  for (var yy = currentYear; yy >= currentYear - 4; yy--) {
+    var yOpt = document.createElement('option');
+    yOpt.value = String(yy);
+    yOpt.textContent = String(yy);
+    historyYearSelect.appendChild(yOpt);
+  }
+  historyYearSelect.addEventListener('change', function(){ loadHistory(); });
 
   document.querySelectorAll('.tab').forEach(function(tab){
     tab.addEventListener('click', function(){
@@ -658,7 +675,8 @@
     var status = document.getElementById('historyStatus');
     var list = document.getElementById('historyList');
     status.textContent = 'Загружаем...'; status.className = 'status';
-    fetch('/api/expenses?init_data=' + encodeURIComponent(initData) + '&pin=' + encodeURIComponent(pin) + '&year=' + new Date().getFullYear())
+    var year = document.getElementById('historyYear').value || new Date().getFullYear();
+    fetch('/api/expenses?init_data=' + encodeURIComponent(initData) + '&pin=' + encodeURIComponent(pin) + '&year=' + year)
       .then(function(r){ return r.json(); })
       .then(function(data){
         lastHistory = data.items || [];
@@ -711,11 +729,17 @@
       byKey[key].items.push(item);
     });
 
-    groups.forEach(function(group){
+    groups.forEach(function(group, groupIndex){
+      var isOpen = groupIndex === 0; // первый (самый свежий) месяц открыт по умолчанию
+
       var header = document.createElement('div');
-      header.className = 'hist-month-header';
-      header.innerHTML = '<span>' + group.label + '</span><span>' + fmt(group.total) + '</span>';
-      list.appendChild(header);
+      header.className = 'hist-month-header' + (isOpen ? ' open' : '');
+      header.innerHTML =
+        '<span class="name"><span class="chevron">▶</span>' + group.label + '</span>' +
+        '<span>' + fmt(group.total) + '</span>';
+
+      var itemsWrap = document.createElement('div');
+      itemsWrap.className = 'hist-month-items' + (isOpen ? ' open' : '');
 
       group.items.forEach(function(item){
         var div = document.createElement('div');
@@ -729,8 +753,16 @@
             '<button type="button" data-action="edit" data-row="' + item.row + '">Изменить</button>' +
             '<button type="button" class="danger" data-action="delete" data-row="' + item.row + '">Удалить</button>' +
           '</div>';
-        list.appendChild(div);
+        itemsWrap.appendChild(div);
       });
+
+      header.addEventListener('click', function(){
+        header.classList.toggle('open');
+        itemsWrap.classList.toggle('open');
+      });
+
+      list.appendChild(header);
+      list.appendChild(itemsWrap);
     });
 
     list.querySelectorAll('[data-action="edit"]').forEach(function(b){
