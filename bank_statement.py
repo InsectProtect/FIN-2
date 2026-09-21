@@ -31,12 +31,20 @@ _DATE_RE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
 _LOAN_KEYWORDS = [
     "imprumut",   # рум. "заём" (без диакритики после normalize)
     "credit",     # рум./рус. "кредит" (в т.ч. "achitare credit")
-    "leasing",
     "datorie",    # рум. "долг"
     "долг",
     "займ",
     "заём",
     "ссуда",
+]
+
+# Контрагенты, платежи которым НИКОГДА не считаются займом/кредитом, даже
+# если в описании встречаются слова из _LOAN_KEYWORDS ("imprumut", "credit"
+# и т.п.) — например, регулярные лизинговые платежи по договору лизинга
+# оборудования/авто, это обычный текущий расход бизнеса, а не выдача или
+# получение денег в долг. Проверяется по подстроке в "Контрагент".
+_LOAN_EXCEPTION_COUNTERPARTIES = [
+    "leasing",
 ]
 
 
@@ -50,6 +58,9 @@ def _normalize(text: str) -> str:
 
 
 def _is_loan_related(counterparty: str, description: str) -> bool:
+    counterparty_norm = _normalize(counterparty)
+    if any(exc in counterparty_norm for exc in _LOAN_EXCEPTION_COUNTERPARTIES):
+        return False
     combined = _normalize(f"{counterparty} {description}")
     return any(kw in combined for kw in _LOAN_KEYWORDS)
 
