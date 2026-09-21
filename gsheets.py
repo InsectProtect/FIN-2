@@ -291,21 +291,27 @@ def delete_expense(row: int) -> None:
     ws.delete_rows(row)
 
 
-def bank_expense_marker(period_from: str, period_to: str) -> str:
-    return f"Расходы по банковской выписке {period_from} – {period_to}"
+def bank_expense_marker(period_from: str, period_to: str, month_key: str) -> str:
+    return f"Расходы по банковской выписке за {month_key} (документ {period_from} – {period_to})"
 
 
-def upsert_bank_expense(date: str, period_from: str, period_to: str, amount: float, added_by: str) -> None:
+def upsert_bank_expense(period_from: str, period_to: str, month_key: str, amount: float, added_by: str) -> None:
     """Добавляет одну строку в «Расходы» с итогом по банковской выписке за
-    период (period_from/period_to — в формате ДД.ММ.ГГГГ). Если для этого
-    же периода такая строка уже есть (по совпадению категории и текста
-    описания), просто обновляет в ней сумму — чтобы повторная загрузка той
-    же выписки не создавала дубль."""
+    КОНКРЕТНЫЙ месяц (month_key — «ГГГГ-ММ»). Дата строки — первое число
+    этого месяца, чтобы сумма корректно попадала в нужный месяц на
+    графиках, даже если сама выписка была одним PDF сразу за несколько
+    месяцев (например, с начала года) — тогда эта функция вызывается один
+    раз на каждый месяц, покрытый выпиской.
+
+    Если для этого же месяца этой же выписки такая строка уже есть (по
+    совпадению категории и текста описания), просто обновляет в ней сумму —
+    чтобы повторная загрузка той же выписки не создавала дубли."""
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     ws = sh.worksheet("Расходы")
     all_rows = ws.get_all_values()
     data_rows = all_rows[4:]
-    marker = bank_expense_marker(period_from, period_to)
+    marker = bank_expense_marker(period_from, period_to, month_key)
+    date = f"{month_key}-01"
 
     target_row = None
     for i, row in enumerate(data_rows):
@@ -355,42 +361,50 @@ def _get_bank_income_ws(sh: gspread.Spreadsheet):
     """Отдельная вкладка (в той же таблице, что и «Расходы») для сумм
     поступлений по перечислению, распознанных из банковских PDF-выписок —
     именно они теперь заменяют колонку PRET F в выручке «по счёту».
-    Создаётся автоматически при первом обращении, если её ещё нет."""
+    Создаётся автоматически при первом обращении, если её ещё нет.
+
+    Одна строка = один месяц (колонка «Месяц», формат ГГГГ-ММ) — так
+    выписка, загруженная одним PDF сразу за несколько месяцев (например,
+    с начала года), корректно раскладывается по месяцам, а не попадает
+    целиком в один."""
     try:
         return sh.worksheet(BANK_INCOME_SHEET_TITLE)
     except WorksheetNotFound:
-        ws = sh.add_worksheet(title=BANK_INCOME_SHEET_TITLE, rows=200, cols=4)
-        ws.append_row(["Дата", "Период с", "Период по", "Сумма MDL"], value_input_option="USER_ENTERED")
+        ws = sh.add_worksheet(title=BANK_INCOME_SHEET_TITLE, rows=200, cols=5)
+        ws.append_row(["Дата", "Период с", "Период по", "Месяц", "Сумма MDL"], value_input_option="USER_ENTERED")
         return ws
 
 
-def upsert_bank_income(date: str, period_from: str, period_to: str, amount: float) -> None:
-    """Добавляет либо обновляет (если для этого же периода выписки уже
-    подтверждали поступления) одну строку с суммой поступлений за период —
-    чтобы повторная загрузка той же выписки не задваивала выручку."""
+def upsert_bank_income(period_from: str, period_to: str, month_key: str, amount: float) -> None:
+    """Добавляет либо обновляет (если для этого же месяца этой же выписки
+    уже подтверждали поступления) одну строку с суммой поступлений за
+    КОНКРЕТНЫЙ месяц (month_key — «ГГГГ-ММ») — чтобы повторная загрузка
+    той же выписки не задваивала выручку, а более длинная выписка (за
+    несколько месяцев сразу) корректно распределялась по месяцам."""
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     ws = _get_bank_income_ws(sh)
     all_rows = ws.get_all_values()
     data_rows = all_rows[1:]
+    date = f"{month_key}-01"
 
     target_row = None
     for i, row in enumerate(data_rows):
-        if len(row) >= 3 and row[1] == period_from and row[2] == period_to:
+        if len(row) >= 4 and row[1] == period_from and row[2] == period_to and row[3] == month_key:
             target_row = i + 2  # +1 за заголовок, +1 т.к. индексация с 1
             break
 
     if target_row:
-        ws.update(f"A{target_row}:D{target_row}", [[date, period_from, period_to, amount]],
+        ws.update(f"A{target_row}:E{target_row}", [[date, period_from, period_to, month_key, amount]],
                   value_input_option="USER_ENTERED")
     else:
-        ws.append_row([date, period_from, period_to, amount], value_input_option="USER_ENTERED")
+        ws.append_row([date, period_from, period_to, month_key, amount], value_input_option="USER_ENTERED")
 
 
 def get_bank_income_by_month(year: int) -> dict:
     """{month_index(1-12): total_mdl} — сумма поступлений по банковским
     выпискам, подтверждённых во вкладке «Сверка с банком», по месяцу
-    (месяц берётся из даты, с которой сохранена запись — конец периода
-    выписки)."""
+    (берётся из даты строки — первое число месяца, к которому относится
+    сумма, а не из периода документа выписки)."""
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     try:
         ws = sh.worksheet(BANK_INCOME_SHEET_TITLE)
@@ -400,10 +414,10 @@ def get_bank_income_by_month(year: int) -> dict:
 
     out = defaultdict(float)
     for row in rows:
-        if len(row) < 4 or not row[0]:
+        if len(row) < 5 or not row[0]:
             continue
         d = _parse_date(row[0])
         if d is None or d.year != year:
             continue
-        out[d.month] += _to_float(row[3])
+        out[d.month] += _to_float(row[4])
     return out
