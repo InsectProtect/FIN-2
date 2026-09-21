@@ -1,4 +1,4 @@
-ffastapi==0.115.0
+fastapi==0.115.0
 uvicorn[standard]==0.30.6
 aiogram==3.13.1
 gspread==6.1.2
