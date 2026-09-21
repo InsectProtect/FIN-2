@@ -19,11 +19,20 @@
     }
   }
   *{box-sizing:border-box;}
+  html{background:var(--bg);}
   body{
     margin:0;background:var(--bg);color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",system-ui,"Segoe UI",Roboto,sans-serif;
     padding:16px 16px calc(90px + env(safe-area-inset-bottom)) 16px;
     -webkit-font-smoothing:antialiased;
+  }
+  /* На широком экране (обычный браузер на компьютере) контент не
+     растягивается на всю ширину, а держится по центру колонкой — как в
+     мобильном приложении, только с более просторными отступами. */
+  #locked, #pinScreen, #appRoot{max-width:720px;margin-left:auto;margin-right:auto;}
+  @media (min-width:900px){
+    body{padding-top:48px;}
+    .brand{margin-top:0;}
   }
   h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:8px 0 4px;}
   .sub{font-size:13px;color:var(--ink-2);margin:0 0 20px;}
