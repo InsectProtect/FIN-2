@@ -170,8 +170,15 @@
   if (tg) { tg.ready(); tg.expand(); }
 
   if (!initData) {
-    document.getElementById('locked').style.display = 'block';
-    return;
+  var debug = "tg существует: " + (!!tg) +
+    "\ninitData (raw): '" + (tg ? tg.initData : "нет tg") + "'" +
+    "\ninitDataUnsafe: " + (tg ? JSON.stringify(tg.initDataUnsafe) : "нет tg") +
+    "\nplatform: " + (tg ? tg.platform : "-") +
+    "\nversion: " + (tg ? tg.version : "-");
+  document.getElementById('locked').style.display = 'block';
+  document.getElementById('locked').innerHTML += '<pre style="white-space:pre-wrap;text-align:left;font-size:11px;margin-top:16px;background:#f5f5f7;padding:12px;border-radius:8px;">' + debug + '</pre>';
+  return;
+}
   }
   document.getElementById('appRoot').style.display = 'block';
 
