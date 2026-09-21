@@ -226,7 +226,8 @@
 
     <div class="card">
       <h3>Отчёт</h3>
-      <button class="primary" id="downloadReportBtn" type="button">Скачать отчёт (PDF)</button>
+      <select id="reportMonth" style="margin-top:4px;"></select>
+      <button class="primary" id="downloadReportBtn" type="button" style="margin-top:10px;">Скачать отчёт (PDF)</button>
       <div class="status" id="reportStatus"></div>
     </div>
   </div>
@@ -667,10 +668,26 @@
       });
   }
 
+  var reportMonthSelect = document.getElementById('reportMonth');
+  if (reportMonthSelect) {
+    var allOpt = document.createElement('option');
+    allOpt.value = 'all'; allOpt.textContent = 'Весь год';
+    reportMonthSelect.appendChild(allOpt);
+    MONTHS_FULL_RU.forEach(function(m, i){
+      var opt = document.createElement('option');
+      opt.value = String(i + 1);
+      opt.textContent = m;
+      reportMonthSelect.appendChild(opt);
+    });
+    // По умолчанию — текущий месяц, самый частый запрос.
+    reportMonthSelect.value = String(new Date().getMonth() + 1);
+  }
+
   document.getElementById('downloadReportBtn').addEventListener('click', function(){
     var status = document.getElementById('reportStatus');
     status.textContent = 'Готовим файл...'; status.className = 'status';
-    var url = window.location.origin + '/api/report?init_data=' + encodeURIComponent(initData) + '&pin=' + encodeURIComponent(pin) + '&year=' + new Date().getFullYear();
+    var reportMonth = reportMonthSelect ? reportMonthSelect.value : 'all';
+    var url = window.location.origin + '/api/report?init_data=' + encodeURIComponent(initData) + '&pin=' + encodeURIComponent(pin) + '&year=' + new Date().getFullYear() + '&month=' + encodeURIComponent(reportMonth);
     if (tg && tg.openLink) {
       tg.openLink(url);
     } else {
