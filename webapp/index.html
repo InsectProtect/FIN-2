@@ -86,6 +86,16 @@
     width:100%;max-width:220px;margin:0 auto;display:block;text-align:center;
     font-size:28px;letter-spacing:10px;padding:14px 10px 14px 20px;
   }
+  .hist-item{background:var(--surface);border-radius:12px;padding:12px 14px;margin-bottom:8px;}
+  .hist-item .top{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--ink-2);}
+  .hist-item .desc{font-size:14px;font-weight:600;margin:4px 0 2px;}
+  .hist-item .meta{font-size:12px;color:var(--ink-2);}
+  .hist-item .amount{font-size:16px;font-weight:700;margin-top:4px;}
+  .hist-actions{display:flex;gap:8px;margin-top:10px;}
+  .hist-actions button{flex:1;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--ink);font-size:13px;font-family:inherit;}
+  .hist-actions button.danger{color:var(--critical);border-color:var(--critical);}
+  .edit-banner{background:var(--good-bg);color:var(--good);border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .edit-banner button{background:none;border:none;color:var(--good);font-weight:600;font-size:13px;font-family:inherit;}
 </style>
 </head>
 <body>
@@ -107,6 +117,7 @@
   <div class="tabs">
     <div class="tab active" data-tab="overview">Обзор</div>
     <div class="tab" data-tab="add">Добавить расход</div>
+    <div class="tab" data-tab="history">История</div>
   </div>
 
   <div class="view active" id="view-overview">
@@ -149,6 +160,11 @@
   </div>
 
   <div class="view" id="view-add">
+    <div class="edit-banner" id="editBanner" style="display:none;">
+      <span>Редактирование записи</span>
+      <button type="button" id="cancelEditBtn">Отменить</button>
+    </div>
+
     <label>Дата</label>
     <input type="date" id="f_date">
 
@@ -204,6 +220,11 @@
 
     <button class="primary" id="submitBtn">Добавить расход</button>
     <div class="status" id="status"></div>
+  </div>
+
+  <div class="view" id="view-history">
+    <div class="status" id="historyStatus">Загружаем...</div>
+    <div id="historyList"></div>
   </div>
 </div>
 
@@ -298,6 +319,7 @@
       document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active');});
       tab.classList.add('active');
       document.getElementById('view-' + tab.dataset.tab).classList.add('active');
+      if (tab.dataset.tab === 'history') loadHistory();
     });
   });
 
@@ -409,6 +431,24 @@
     }
   });
 
+  function resetForm(){
+    document.getElementById('f_amount').value = '';
+    document.getElementById('f_desc').value = '';
+    receiptInput.value = '';
+    document.getElementById('receiptPreview').innerHTML = '';
+  }
+
+  var editRow = null;
+
+  function exitEditMode(){
+    editRow = null;
+    document.getElementById('editBanner').style.display = 'none';
+    document.getElementById('submitBtn').textContent = 'Добавить расход';
+    resetForm();
+  }
+
+  document.getElementById('cancelEditBtn').addEventListener('click', exitEditMode);
+
   document.getElementById('submitBtn').addEventListener('click', function(){
     var btn = this, status = document.getElementById('status');
     var date = document.getElementById('f_date').value;
@@ -417,38 +457,151 @@
       status.textContent = 'Заполните дату и сумму.'; status.className = 'status err';
       return;
     }
-    var fd = new FormData();
-    fd.append('init_data', initData);
-    fd.append('pin', pin);
-    fd.append('date', date);
-    fd.append('category', document.getElementById('f_category').value);
-    fd.append('description', document.getElementById('f_desc').value);
-    fd.append('account', document.getElementById('f_account').value);
-    fd.append('currency', document.getElementById('f_currency').value);
-    fd.append('amount', amount);
-    fd.append('rate', document.getElementById('f_rate').value || 1);
-    var file = receiptInput.files && receiptInput.files[0];
-    if (file) fd.append('receipt', file, file.name);
 
     btn.disabled = true;
     status.textContent = 'Сохраняем...'; status.className = 'status';
-    fetch('/api/expense', { method: 'POST', body: fd }).then(function(r){
+
+    var req;
+    if (editRow) {
+      var fd = new FormData();
+      fd.append('init_data', initData);
+      fd.append('pin', pin);
+      fd.append('row', editRow);
+      fd.append('date', date);
+      fd.append('category', document.getElementById('f_category').value);
+      fd.append('description', document.getElementById('f_desc').value);
+      fd.append('account', document.getElementById('f_account').value);
+      fd.append('currency', document.getElementById('f_currency').value);
+      fd.append('amount', amount);
+      fd.append('rate', document.getElementById('f_rate').value || 1);
+      req = fetch('/api/expense/update', { method: 'POST', body: fd });
+    } else {
+      var fd2 = new FormData();
+      fd2.append('init_data', initData);
+      fd2.append('pin', pin);
+      fd2.append('date', date);
+      fd2.append('category', document.getElementById('f_category').value);
+      fd2.append('description', document.getElementById('f_desc').value);
+      fd2.append('account', document.getElementById('f_account').value);
+      fd2.append('currency', document.getElementById('f_currency').value);
+      fd2.append('amount', amount);
+      fd2.append('rate', document.getElementById('f_rate').value || 1);
+      var file = receiptInput.files && receiptInput.files[0];
+      if (file) fd2.append('receipt', file, file.name);
+      req = fetch('/api/expense', { method: 'POST', body: fd2 });
+    }
+
+    var wasEdit = !!editRow;
+    req.then(function(r){
       if (!r.ok) throw new Error();
       return r.json();
     }).then(function(){
-      status.textContent = 'Добавлено.'; status.className = 'status ok';
-      document.getElementById('f_amount').value = '';
-      document.getElementById('f_desc').value = '';
-      receiptInput.value = '';
-      document.getElementById('receiptPreview').innerHTML = '';
+      status.textContent = wasEdit ? 'Изменения сохранены.' : 'Добавлено.'; status.className = 'status ok';
+      if (wasEdit) exitEditMode(); else resetForm();
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
       loadSummary();
+      loadHistory();
     }).catch(function(){
       status.textContent = 'Не удалось сохранить. Попробуйте ещё раз.'; status.className = 'status err';
     }).finally(function(){
       btn.disabled = false;
     });
   });
+
+  function toISODate(v){
+    if (!v) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    var m = v.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    return m ? (m[3] + '-' + m[2] + '-' + m[1]) : '';
+  }
+
+  var lastHistory = [];
+
+  function loadHistory(){
+    var status = document.getElementById('historyStatus');
+    var list = document.getElementById('historyList');
+    status.textContent = 'Загружаем...'; status.className = 'status';
+    fetch('/api/expenses?init_data=' + encodeURIComponent(initData) + '&pin=' + encodeURIComponent(pin) + '&year=' + new Date().getFullYear())
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        lastHistory = data.items || [];
+        renderHistory(lastHistory);
+        status.textContent = '';
+      })
+      .catch(function(){
+        status.textContent = 'Не удалось загрузить историю.'; status.className = 'status err';
+      });
+  }
+
+  function renderHistory(items){
+    var list = document.getElementById('historyList');
+    list.innerHTML = '';
+    if (!items.length) {
+      list.innerHTML = '<p class="forecast-note">Пока нет расходов за этот год.</p>';
+      return;
+    }
+    items.forEach(function(item){
+      var div = document.createElement('div');
+      div.className = 'hist-item';
+      div.innerHTML =
+        '<div class="top"><span>' + item.date + '</span><span>' + item.account + '</span></div>' +
+        '<div class="desc">' + (item.description || item.category) + '</div>' +
+        '<div class="meta">' + item.category + '</div>' +
+        '<div class="amount">' + item.amount + ' ' + item.currency + '</div>' +
+        '<div class="hist-actions">' +
+          '<button type="button" data-action="edit" data-row="' + item.row + '">Изменить</button>' +
+          '<button type="button" class="danger" data-action="delete" data-row="' + item.row + '">Удалить</button>' +
+        '</div>';
+      list.appendChild(div);
+    });
+
+    list.querySelectorAll('[data-action="edit"]').forEach(function(b){
+      b.addEventListener('click', function(){ startEdit(parseInt(b.dataset.row, 10)); });
+    });
+    list.querySelectorAll('[data-action="delete"]').forEach(function(b){
+      b.addEventListener('click', function(){ confirmDelete(parseInt(b.dataset.row, 10)); });
+    });
+  }
+
+  function startEdit(row){
+    var item = lastHistory.find(function(x){ return x.row === row; });
+    if (!item) return;
+    editRow = row;
+    document.getElementById('f_date').value = toISODate(item.date);
+    document.getElementById('f_category').value = item.category;
+    document.getElementById('f_desc').value = item.description;
+    document.getElementById('f_account').value = item.account;
+    document.getElementById('f_currency').value = item.currency;
+    document.getElementById('f_amount').value = item.amount;
+    document.getElementById('f_rate').value = item.rate || '';
+    document.getElementById('rateRow').style.display = item.currency === 'MDL' ? 'none' : 'block';
+    document.getElementById('editBanner').style.display = 'flex';
+    document.getElementById('submitBtn').textContent = 'Сохранить изменения';
+    document.getElementById('status').textContent = '';
+
+    document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
+    document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
+    document.querySelector('.tab[data-tab="add"]').classList.add('active');
+    document.getElementById('view-add').classList.add('active');
+  }
+
+  function confirmDelete(row){
+    if (!window.confirm('Удалить эту запись без возможности восстановить?')) return;
+    var fd = new FormData();
+    fd.append('init_data', initData);
+    fd.append('pin', pin);
+    fd.append('row', row);
+    fetch('/api/expense/delete', { method: 'POST', body: fd }).then(function(r){
+      if (!r.ok) throw new Error();
+      return r.json();
+    }).then(function(){
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      loadHistory();
+      loadSummary();
+    }).catch(function(){
+      window.alert('Не удалось удалить запись. Попробуйте ещё раз.');
+    });
+  }
 })();
 </script>
 </body>
