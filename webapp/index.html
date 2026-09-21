@@ -123,6 +123,7 @@
     <div class="tab active" data-tab="overview">Обзор</div>
     <div class="tab" data-tab="add">Добавить расход</div>
     <div class="tab" data-tab="history">История</div>
+    <div class="tab" data-tab="bank">Сверка с банком</div>
   </div>
 
   <div class="view active" id="view-overview">
@@ -236,6 +237,28 @@
   <div class="view" id="view-history">
     <div class="status" id="historyStatus">Загружаем...</div>
     <div id="historyList"></div>
+  </div>
+
+  <div class="view" id="view-bank">
+    <div class="card">
+      <h3>Сверка с банковской выпиской</h3>
+      <p class="forecast-note">Загрузите PDF-выписку по счёту (как есть, из интернет-банкинга) — приложение само найдёт в ней все списания (расходы) и сравнит их сумму с тем, что уже внесено в таблицу «Расходы» за тот же период.</p>
+      <input type="file" id="bankFile" accept="application/pdf" style="margin-top:10px;width:100%;">
+      <button type="button" id="bankUploadBtn" class="primary" style="margin-top:10px;">Загрузить и сверить</button>
+      <div class="status" id="bankStatus"></div>
+    </div>
+    <div class="card" id="bankResultCard" style="display:none;">
+      <h3 id="bankPeriodTitle">Период</h3>
+      <div class="kpis" style="margin-bottom:0;">
+        <div class="kpi"><div class="label">Расходы по выписке</div><div class="value" id="bankTotalPdf">—</div></div>
+        <div class="kpi"><div class="label">Внесено в таблицу</div><div class="value" id="bankTotalSheet">—</div></div>
+      </div>
+      <p class="forecast-note" id="bankDiffNote"></p>
+    </div>
+    <div class="card" id="bankListCard" style="display:none;">
+      <h3>Операции из выписки (расходы)</h3>
+      <div id="bankList"></div>
+    </div>
   </div>
 </div>
 
@@ -670,6 +693,69 @@
     }).catch(function(){
       window.alert('Не удалось удалить запись. Попробуйте ещё раз.');
     });
+  }
+
+  document.getElementById('bankUploadBtn').addEventListener('click', function(){
+    var fileInput = document.getElementById('bankFile');
+    var status = document.getElementById('bankStatus');
+    var file = fileInput.files && fileInput.files[0];
+    if (!file) {
+      status.textContent = 'Выберите PDF-файл выписки.'; status.className = 'status err';
+      return;
+    }
+    var btn = this;
+    btn.disabled = true;
+    status.textContent = 'Читаем выписку...'; status.className = 'status';
+    document.getElementById('bankResultCard').style.display = 'none';
+    document.getElementById('bankListCard').style.display = 'none';
+
+    var fd = new FormData();
+    fd.append('init_data', initData);
+    fd.append('pin', pin);
+    fd.append('file', file, file.name);
+    fetch('/api/bank_statement', { method: 'POST', body: fd })
+      .then(function(r){ if (!r.ok) throw new Error(); return r.json(); })
+      .then(function(data){ renderBankResult(data); status.textContent = ''; })
+      .catch(function(){ status.textContent = 'Не удалось разобрать файл. Проверьте, что это PDF-выписка нужного формата.'; status.className = 'status err'; })
+      .finally(function(){ btn.disabled = false; });
+  });
+
+  function renderBankResult(data){
+    var title = document.getElementById('bankPeriodTitle');
+    title.textContent = (data.period_from && data.period_to)
+      ? 'Период: ' + data.period_from + ' — ' + data.period_to
+      : 'Период не распознан';
+
+    document.getElementById('bankTotalPdf').textContent = fmt(data.total_expenses || 0);
+    var diffNote = document.getElementById('bankDiffNote');
+    if (data.sheet_total != null) {
+      document.getElementById('bankTotalSheet').textContent = fmt(data.sheet_total);
+      var diff = Math.round((data.total_expenses || 0) - data.sheet_total);
+      diffNote.textContent = diff === 0
+        ? 'Совпадает — все расходы за период внесены в таблицу.'
+        : (diff > 0
+            ? 'В таблице не хватает расходов на ' + fmt(diff) + ' — возможно, часть операций не внесена.'
+            : 'В таблице внесено больше на ' + fmt(-diff) + ', чем по выписке — стоит перепроверить записи за этот период.');
+    } else {
+      document.getElementById('bankTotalSheet').textContent = 'не удалось посчитать';
+      diffNote.textContent = '';
+    }
+    document.getElementById('bankResultCard').style.display = 'block';
+
+    var list = document.getElementById('bankList');
+    list.innerHTML = '';
+    (data.items || []).forEach(function(item){
+      var el = document.createElement('div'); el.className = 'hist-item';
+      var top = document.createElement('div'); top.className = 'top';
+      var d = document.createElement('span'); d.textContent = item.date;
+      var c = document.createElement('span'); c.textContent = item.counterparty;
+      top.appendChild(d); top.appendChild(c);
+      var desc = document.createElement('div'); desc.className = 'desc'; desc.textContent = item.description || '';
+      var amount = document.createElement('div'); amount.className = 'amount'; amount.textContent = fmt(item.amount);
+      el.appendChild(top); el.appendChild(desc); el.appendChild(amount);
+      list.appendChild(el);
+    });
+    document.getElementById('bankListCard').style.display = (data.items || []).length ? 'block' : 'none';
   }
 })();
 </script>
