@@ -158,7 +158,7 @@
     </div>
 
     <div class="card">
-      <h3>По видам вредителей (весь год)</h3>
+      <h3 id="svcTitle">По видам вредителей (весь год)</h3>
       <div class="svc-grid" id="svcGrid"></div>
       <p class="forecast-note" id="svcOtherNote"></p>
     </div>
@@ -402,27 +402,47 @@
     document.getElementById('fcRevenue').textContent = k.revenue_forecast != null ? fmt(k.revenue_forecast) : 'мало данных';
     document.getElementById('fcExpenses').textContent = k.expenses_forecast != null ? fmt(k.expenses_forecast) : 'мало данных';
 
-    renderServices(data.revenue_by_service);
+    renderServices(data.revenue_by_service_month, periodLabel);
   }
 
   var MAIN_SERVICE_KEYS = ["gandaci", "plosnite", "zburatoare", "rozatoare"];
 
-  function renderServices(list){
+  function renderServices(byMonth, periodLabel){
     var grid = document.getElementById('svcGrid');
     var note = document.getElementById('svcOtherNote');
-    if (!grid || !list) return;
+    var title = document.getElementById('svcTitle');
+    if (!grid || !byMonth) return;
     grid.innerHTML = '';
+
+    if (title) {
+      title.textContent = 'По видам вредителей (' + (periodLabel === 'YTD' ? 'весь год' : periodLabel) + ')';
+    }
+
+    // Список за выбранный месяц, либо сумма по всем месяцам за "весь год"
+    var list;
+    if (selectedMonth === "all") {
+      var totals = {};
+      Object.keys(byMonth).forEach(function(m){
+        (byMonth[m] || []).forEach(function(item){
+          if (!totals[item.key]) totals[item.key] = {key: item.key, label: item.label, count: 0, total: 0};
+          totals[item.key].count += item.count;
+          totals[item.key].total += item.total;
+        });
+      });
+      list = Object.values(totals);
+    } else {
+      list = byMonth[selectedMonth] || [];
+    }
 
     var byKey = {};
     list.forEach(function(item){ byKey[item.key] = item; });
 
     MAIN_SERVICE_KEYS.forEach(function(key){
-      var item = byKey[key];
-      if (!item) return;
+      var item = byKey[key] || {label: '', count: 0, total: 0};
       var tile = document.createElement('div'); tile.className = 'svc-tile';
-      var name = document.createElement('div'); name.className = 'name'; name.textContent = item.label;
+      var name = document.createElement('div'); name.className = 'name'; name.textContent = item.label || key;
       var count = document.createElement('div'); count.className = 'count'; count.textContent = item.count + ' выз.';
-      var rev = document.createElement('div'); rev.className = 'rev'; rev.textContent = fmt(item.total) + ' MDL';
+      var rev = document.createElement('div'); rev.className = 'rev'; rev.textContent = fmt(item.total);
       tile.appendChild(name); tile.appendChild(count); tile.appendChild(rev);
       grid.appendChild(tile);
     });
@@ -436,7 +456,7 @@
     });
     if (note) {
       note.textContent = otherCount > 0
-        ? 'Другое (муравьи, осы, блохи, дезинфекция): ' + otherCount + ' выз., ' + fmt(otherTotal) + ' MDL'
+        ? 'Другое (муравьи, осы, блохи, дезинфекция): ' + otherCount + ' выз., ' + fmt(otherTotal)
         : '';
     }
   }
