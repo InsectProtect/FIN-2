@@ -96,6 +96,11 @@
   .hist-actions button.danger{color:var(--critical);border-color:var(--critical);}
   .edit-banner{background:var(--good-bg);color:var(--good);border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
   .edit-banner button{background:none;border:none;color:var(--good);font-weight:600;font-size:13px;font-family:inherit;}
+  .svc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .svc-tile{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:12px 14px;}
+  .svc-tile .name{font-size:12px;color:var(--ink-2);margin-bottom:6px;}
+  .svc-tile .count{font-size:19px;font-weight:700;letter-spacing:-.01em;}
+  .svc-tile .rev{font-size:12px;color:var(--ink-2);margin-top:2px;}
 </style>
 </head>
 <body>
@@ -150,6 +155,12 @@
         <div class="kpi"><div class="label">Ожидаемые расходы</div><div class="value" id="fcExpenses">—</div></div>
       </div>
       <p class="forecast-note">Простой прогноз по тренду последних месяцев. Пришлите контекст (сезонность, известные будущие заказы) в чат с Claude — прогноз можно уточнить вручную.</p>
+    </div>
+
+    <div class="card">
+      <h3>По видам вредителей (весь год)</h3>
+      <div class="svc-grid" id="svcGrid"></div>
+      <p class="forecast-note" id="svcOtherNote"></p>
     </div>
 
     <div class="card">
@@ -390,6 +401,44 @@
     var k = data.kpis || {};
     document.getElementById('fcRevenue').textContent = k.revenue_forecast != null ? fmt(k.revenue_forecast) : 'мало данных';
     document.getElementById('fcExpenses').textContent = k.expenses_forecast != null ? fmt(k.expenses_forecast) : 'мало данных';
+
+    renderServices(data.revenue_by_service);
+  }
+
+  var MAIN_SERVICE_KEYS = ["gandaci", "plosnite", "zburatoare", "rozatoare"];
+
+  function renderServices(list){
+    var grid = document.getElementById('svcGrid');
+    var note = document.getElementById('svcOtherNote');
+    if (!grid || !list) return;
+    grid.innerHTML = '';
+
+    var byKey = {};
+    list.forEach(function(item){ byKey[item.key] = item; });
+
+    MAIN_SERVICE_KEYS.forEach(function(key){
+      var item = byKey[key];
+      if (!item) return;
+      var tile = document.createElement('div'); tile.className = 'svc-tile';
+      var name = document.createElement('div'); name.className = 'name'; name.textContent = item.label;
+      var count = document.createElement('div'); count.className = 'count'; count.textContent = item.count + ' выз.';
+      var rev = document.createElement('div'); rev.className = 'rev'; rev.textContent = fmt(item.total) + ' MDL';
+      tile.appendChild(name); tile.appendChild(count); tile.appendChild(rev);
+      grid.appendChild(tile);
+    });
+
+    var otherCount = 0, otherTotal = 0;
+    list.forEach(function(item){
+      if (MAIN_SERVICE_KEYS.indexOf(item.key) === -1) {
+        otherCount += item.count;
+        otherTotal += item.total;
+      }
+    });
+    if (note) {
+      note.textContent = otherCount > 0
+        ? 'Другое (муравьи, осы, блохи, дезинфекция): ' + otherCount + ' выз., ' + fmt(otherTotal) + ' MDL'
+        : '';
+    }
   }
 
   function loadSummary(){
