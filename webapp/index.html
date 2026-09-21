@@ -171,6 +171,7 @@
       <div class="kpi wide"><div class="label" id="lblTotalRevenue">Общая выручка</div><div class="value" id="kpiTotalRevenue">—</div></div>
       <div class="kpi"><div class="label" id="lblExpenses">Расходы</div><div class="value" id="kpiExpenses">—</div></div>
       <div class="kpi" id="kpiProfitTile"><div class="label" id="lblProfit">Прибыль</div><div class="value" id="kpiProfit">—</div></div>
+      <div class="kpi"><div class="label" id="lblAvgCheck">Средний чек</div><div class="value" id="kpiAvgCheck">—</div></div>
     </div>
 
     <div class="card">
@@ -390,11 +391,12 @@
   }
 
   var months = ["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"];
+  var MONTHS_FULL_RU = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
   var lastData = null;
   var selectedMonth = "all";
 
   var monthFilter = document.getElementById('monthFilter');
-  months.forEach(function(m, i){
+  MONTHS_FULL_RU.forEach(function(m, i){
     var opt = document.createElement('option');
     opt.value = String(i + 1);
     opt.textContent = m;
@@ -445,7 +447,7 @@
       cashSum = cash[selectedMonth] || 0;
       invSum = inv[selectedMonth] || 0;
       expSum = exp[selectedMonth] || 0;
-      periodLabel = months[parseInt(selectedMonth, 10) - 1];
+      periodLabel = MONTHS_FULL_RU[parseInt(selectedMonth, 10) - 1];
     }
     document.getElementById('lblCash').textContent = 'Наличные (' + periodLabel + ')';
     document.getElementById('lblInvoice').textContent = 'По счёту (' + periodLabel + ')';
@@ -461,6 +463,19 @@
     var profitTile = document.getElementById('kpiProfitTile');
     profitTile.classList.remove('good', 'bad');
     profitTile.classList.add(profit < 0 ? 'bad' : 'good');
+
+    // Средний чек = общая выручка (наличные + по счёту) / количество
+    // вызовов за период (считаем по строкам с указанным видом вредителя
+    // на листах заказов — то же число, что и в карточке "По видам
+    // вредителей" ниже).
+    document.getElementById('lblAvgCheck').textContent = 'Средний чек (' + periodLabel + ')';
+    var byService = data.revenue_by_service_month || {};
+    var orderCount = 0;
+    var monthKeysForCount = selectedMonth === "all" ? Object.keys(byService) : [selectedMonth];
+    monthKeysForCount.forEach(function(mk){
+      (byService[mk] || []).forEach(function(s){ orderCount += s.count || 0; });
+    });
+    document.getElementById('kpiAvgCheck').textContent = orderCount > 0 ? fmt((cashSum + invSum) / orderCount) : '—';
 
     // График — всегда на весь год, с подсветкой выбранного месяца
     var max = Math.max.apply(null, months.map(function(_, i){
@@ -699,8 +714,6 @@
         status.textContent = 'Не удалось загрузить историю.'; status.className = 'status err';
       });
   }
-
-  var MONTHS_FULL_RU = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
 
   function parseItemDate(dateStr){
     var iso = toISODate(dateStr);
