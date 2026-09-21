@@ -17,7 +17,7 @@ from google.oauth2.service_account import Credentials
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive",
 ]
 
 MONTH_SHEETS = ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai",
@@ -108,15 +108,19 @@ def _parse_date(v: str):
 
 
 def add_expense(date: str, category: str, description: str, account: str,
-                 currency: str, amount: float, rate: float, has_doc: str, added_by: str) -> None:
+                 currency: str, amount: float, rate: float, has_doc: str, added_by: str,
+                 receipt_link: str = "") -> None:
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     ws = sh.worksheet("Расходы")
     mdl = amount if currency == "MDL" else amount * rate
     d = datetime.datetime.strptime(date, "%Y-%m-%d")
     month_name = MONTH_RU[d.month - 1]
+    # Последняя колонка — кликабельная ссылка на фото чека (если было
+    # загружено). HYPERLINK делает её ссылкой прямо в ячейке, а не голым URL.
+    receipt_cell = f'=HYPERLINK("{receipt_link}"; "Чек")' if receipt_link else ""
     ws.append_row([
         date, month_name, category, description, account, currency,
-        amount, rate, mdl, has_doc, f"добавлено через Telegram: {added_by}"
+        amount, rate, mdl, has_doc, f"добавлено через Telegram: {added_by}", receipt_cell
     ], value_input_option="USER_ENTERED")
 
 
