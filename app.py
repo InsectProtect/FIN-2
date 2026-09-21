@@ -13,13 +13,14 @@ from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
                             KeyboardButton, Message, ReplyKeyboardMarkup,
                             WebAppInfo)
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 import auth
 import forecast
 import gsheets
+import report
 import users
 
 load_dotenv()
@@ -122,6 +123,8 @@ async def api_summary(init_data: str, year: int = datetime.date.today().year):
     today = datetime.date.today()
     upcoming = today.month + 1 if today.month < 12 else 1
 
+    # forecast.py работает с простыми {month: total}, поэтому даём ему
+    # только суммарную выручку (наличные + по счёту).
     revenue_total = {m: v["total"] for m, v in revenue.items()}
     kpis = forecast.build_kpis(revenue_total, expenses, upcoming if today.month < 12 else 13)
 
@@ -135,6 +138,22 @@ async def api_summary(init_data: str, year: int = datetime.date.today().year):
         "expenses_by_category": by_cat,
         "kpis": kpis,
     })
+
+
+@app.get("/api/report")
+async def api_report(init_data: str, year: int = datetime.date.today().year):
+    _authed_user(init_data)
+    revenue = gsheets.get_revenue_by_month(year)
+    expenses, by_cat = gsheets.get_expenses_summary(year)
+    pdf_bytes = report.build_pdf(year, revenue, expenses, by_cat)
+    filename = f"otchet_{year}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/api/expense")
 async def api_add_expense(request: Request):
     body = await request.json()
