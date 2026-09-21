@@ -734,9 +734,7 @@
 
       var header = document.createElement('div');
       header.className = 'hist-month-header' + (isOpen ? ' open' : '');
-      header.innerHTML =
-        '<span class="name"><span class="chevron">▶</span>' + group.label + '</span>' +
-        '<span>' + fmt(group.total) + '</span>';
+      header.innerHTML = '<span class="name"><span class="chevron">▶</span>' + group.label + '</span>';
 
       var itemsWrap = document.createElement('div');
       itemsWrap.className = 'hist-month-items' + (isOpen ? ' open' : '');
