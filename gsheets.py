@@ -13,6 +13,7 @@ import datetime
 from collections import defaultdict
 
 import gspread
+from gspread.exceptions import WorksheetNotFound
 from google.oauth2.service_account import Credentials
 
 SCOPES = [
@@ -52,8 +53,14 @@ def _open(title: str) -> gspread.Spreadsheet:
 
 def get_revenue_by_month(year: int) -> dict:
     """{month_index(1-12): {"cash": ..., "invoice": ..., "total": ...}}
-    из листов заказов «Ip 2026» — наличные (PRET C*) и по счёту (PRET F)
-    считаются раздельно.
+
+    "cash" — наличные (колонки PRET C*) из листов заказов «Ip {year}».
+    "invoice" — «по счёту» — раньше бралось из колонки PRET F в той же
+    таблице, но по просьбе пользователя эта колонка больше НЕ учитывается
+    (там были невыверенные/невыплаченные суммы). Вместо неё "invoice" —
+    это реальные поступления по перечислению, распознанные из
+    банковских PDF-выписок и подтверждённые во вкладке «Сверка с банком»
+    (см. upsert_bank_income/get_bank_income_by_month).
 
     Читает все 12 листов ОДНИМ batch-запросом (values_batch_get), а не по
     одному запросу на лист — иначе быстро упираемся в лимит API."""
@@ -73,13 +80,14 @@ def get_revenue_by_month(year: int) -> dict:
             continue
         header = [h.strip() for h in rows[0]]
         cash_cols = [idx for idx, h in enumerate(header) if h.upper().startswith("PRET C")]
-        inv_col = next((idx for idx, h in enumerate(header) if h.strip() == "PRET F"), None)
         for row in rows[1:]:
             for idx in cash_cols:
                 if idx < len(row):
                     out[month_i]["cash"] += _to_float(row[idx])
-            if inv_col is not None and inv_col < len(row):
-                out[month_i]["invoice"] += _to_float(row[inv_col])
+
+    bank_income = get_bank_income_by_month(year)
+    for month_i in range(1, 13):
+        out[month_i]["invoice"] = round(bank_income.get(month_i, 0.0), 2)
         out[month_i]["total"] = out[month_i]["cash"] + out[month_i]["invoice"]
     return out
 
@@ -133,7 +141,8 @@ def get_revenue_by_service(year: int) -> dict:
         if rows:
             header = [h.strip() for h in rows[0]]
             cash_cols = [idx for idx, h in enumerate(header) if h.upper().startswith("PRET C")]
-            inv_col = next((idx for idx, h in enumerate(header) if h.strip() == "PRET F"), None)
+            # PRET F (колонка "по счёту") больше не учитывается — см. пояснение
+            # в get_revenue_by_month.
             daun_col = next((idx for idx, h in enumerate(header) if h.strip().lower() == "daunatori"), None)
             if daun_col is not None:
                 for row in rows[1:]:
@@ -141,8 +150,6 @@ def get_revenue_by_service(year: int) -> dict:
                     for idx in cash_cols:
                         if idx < len(row):
                             total += _to_float(row[idx])
-                    if inv_col is not None and inv_col < len(row):
-                        total += _to_float(row[inv_col])
                     raw = row[daun_col].strip().lower() if daun_col < len(row) else ""
                     if not raw and total == 0:
                         continue  # пустая строка-разделитель между днями
@@ -339,3 +346,64 @@ def get_expenses_total_in_range(date_from: str, date_to: str) -> float:
         if d_from <= d <= d_to:
             total += _to_float(row[8])
     return round(total, 2)
+
+
+BANK_INCOME_SHEET_TITLE = "Поступления_банк"
+
+
+def _get_bank_income_ws(sh: gspread.Spreadsheet):
+    """Отдельная вкладка (в той же таблице, что и «Расходы») для сумм
+    поступлений по перечислению, распознанных из банковских PDF-выписок —
+    именно они теперь заменяют колонку PRET F в выручке «по счёту».
+    Создаётся автоматически при первом обращении, если её ещё нет."""
+    try:
+        return sh.worksheet(BANK_INCOME_SHEET_TITLE)
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title=BANK_INCOME_SHEET_TITLE, rows=200, cols=4)
+        ws.append_row(["Дата", "Период с", "Период по", "Сумма MDL"], value_input_option="USER_ENTERED")
+        return ws
+
+
+def upsert_bank_income(date: str, period_from: str, period_to: str, amount: float) -> None:
+    """Добавляет либо обновляет (если для этого же периода выписки уже
+    подтверждали поступления) одну строку с суммой поступлений за период —
+    чтобы повторная загрузка той же выписки не задваивала выручку."""
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = _get_bank_income_ws(sh)
+    all_rows = ws.get_all_values()
+    data_rows = all_rows[1:]
+
+    target_row = None
+    for i, row in enumerate(data_rows):
+        if len(row) >= 3 and row[1] == period_from and row[2] == period_to:
+            target_row = i + 2  # +1 за заголовок, +1 т.к. индексация с 1
+            break
+
+    if target_row:
+        ws.update(f"A{target_row}:D{target_row}", [[date, period_from, period_to, amount]],
+                  value_input_option="USER_ENTERED")
+    else:
+        ws.append_row([date, period_from, period_to, amount], value_input_option="USER_ENTERED")
+
+
+def get_bank_income_by_month(year: int) -> dict:
+    """{month_index(1-12): total_mdl} — сумма поступлений по банковским
+    выпискам, подтверждённых во вкладке «Сверка с банком», по месяцу
+    (месяц берётся из даты, с которой сохранена запись — конец периода
+    выписки)."""
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    try:
+        ws = sh.worksheet(BANK_INCOME_SHEET_TITLE)
+    except WorksheetNotFound:
+        return {}
+    rows = ws.get_all_values()[1:]
+
+    out = defaultdict(float)
+    for row in rows:
+        if len(row) < 4 or not row[0]:
+            continue
+        d = _parse_date(row[0])
+        if d is None or d.year != year:
+            continue
+        out[d.month] += _to_float(row[3])
+    return out
