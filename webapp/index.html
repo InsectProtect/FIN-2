@@ -48,8 +48,10 @@
   .brand-text{line-height:1.2;}
   .brand-name{font-size:18px;font-weight:700;letter-spacing:-.01em;}
   .brand-sub{font-size:12px;color:var(--ink-2);margin-top:1px;}
-  .tabs{display:flex;gap:8px;background:var(--surface);border-radius:14px;padding:4px;margin-bottom:20px;}
-  .tab{flex:1;text-align:center;padding:9px 0;border-radius:11px;font-size:13px;font-weight:600;color:var(--ink-2);}
+  .tabs{display:flex;gap:8px;background:var(--surface);border-radius:14px;padding:4px;margin-bottom:20px;
+    overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  .tabs::-webkit-scrollbar{display:none;}
+  .tab{flex:0 0 auto;min-width:96px;text-align:center;padding:9px 10px;border-radius:11px;font-size:13px;font-weight:600;color:var(--ink-2);white-space:nowrap;}
   .tab.active{background:var(--bg);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08);}
   .view{display:none;}
   .view.active{display:block;}
@@ -146,6 +148,21 @@
   .donut-legend .name{color:var(--ink);}
   .donut-legend .amt{color:var(--ink-2);font-size:12px;margin-left:2px;}
   .donut-legend .pct{font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums;}
+
+  .cmp-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:14px;}
+  .cmp-table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums;}
+  .cmp-table th,.cmp-table td{padding:9px 10px;text-align:right;white-space:nowrap;}
+  .cmp-table th:first-child,.cmp-table td:first-child{text-align:left;position:sticky;left:0;background:var(--bg);}
+  .cmp-table thead th{background:var(--surface);color:var(--ink-2);font-weight:600;font-size:11px;
+    text-transform:uppercase;letter-spacing:.02em;border-bottom:1px solid var(--border);}
+  .cmp-table thead th:first-child{background:var(--surface);}
+  .cmp-table tbody tr{border-bottom:1px solid var(--border);}
+  .cmp-table tbody tr:nth-child(even) td{background:var(--surface);}
+  .cmp-table tbody tr:nth-child(even) td:first-child{background:var(--surface);}
+  .cmp-table td.profit-good{color:var(--good);font-weight:600;}
+  .cmp-table td.profit-bad{color:var(--critical);font-weight:600;}
+  .cmp-table tfoot td{font-weight:700;border-top:2px solid var(--border);background:var(--surface);}
+  .cmp-table tfoot td:first-child{background:var(--surface);}
 </style>
 </head>
 <body>
@@ -178,6 +195,7 @@
     <div class="tab" data-tab="add">Добавить расход</div>
     <div class="tab" data-tab="history">История</div>
     <div class="tab" data-tab="bank">Сверка с банком</div>
+    <div class="tab" data-tab="compare">Сравнение</div>
   </div>
 
   <div class="view active" id="view-overview">
@@ -335,6 +353,33 @@
       <p class="forecast-note" id="bankLoanNote"></p>
     </div>
   </div>
+
+  <div class="view" id="view-compare">
+    <div class="card">
+      <h3>Сравнение месяцев</h3>
+      <p class="forecast-note">Выручка, расходы, прибыль, количество заявок и средний чек по каждому месяцу — чтобы сразу видеть, где просадка или рост.</p>
+      <div class="cmp-wrap">
+        <table class="cmp-table">
+          <thead>
+            <tr>
+              <th>Месяц</th><th>Выручка</th><th>Расходы</th><th>Прибыль</th><th>Заявок</th><th>Ср. чек</th>
+            </tr>
+          </thead>
+          <tbody id="cmpBody"></tbody>
+          <tfoot>
+            <tr>
+              <td>Итого</td>
+              <td id="cmpTotalRev">—</td>
+              <td id="cmpTotalExp">—</td>
+              <td id="cmpTotalProfit">—</td>
+              <td id="cmpTotalCount">—</td>
+              <td id="cmpTotalAvg">—</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -450,6 +495,7 @@
       tab.classList.add('active');
       document.getElementById('view-' + tab.dataset.tab).classList.add('active');
       if (tab.dataset.tab === 'history') loadHistory();
+      if (tab.dataset.tab === 'compare') renderCompare(lastData);
     });
   });
 
@@ -541,6 +587,49 @@
     document.getElementById('fcExpenses').textContent = k.expenses_forecast != null ? fmt(k.expenses_forecast) : 'мало данных';
 
     renderServices(data.revenue_by_service_month, periodLabel);
+    renderCompare(data);
+  }
+
+  function renderCompare(data){
+    var tbody = document.getElementById('cmpBody');
+    if (!tbody || !data) return;
+    tbody.innerHTML = '';
+
+    var rev = data.revenue_by_month || {};
+    var exp = data.expenses_by_month || {};
+    var svcByMonth = data.revenue_by_service_month || {};
+
+    var totalRev = 0, totalExp = 0, totalCount = 0;
+    for (var m = 1; m <= 12; m++) {
+      var r = rev[m] || 0, e = exp[m] || 0;
+      var profit = r - e;
+      var count = 0;
+      (svcByMonth[m] || []).forEach(function(item){ count += item.count || 0; });
+      var avgCheck = count > 0 ? r / count : null;
+
+      totalRev += r; totalExp += e; totalCount += count;
+
+      var tr = document.createElement('tr');
+      var tdMonth = document.createElement('td'); tdMonth.textContent = MONTHS_FULL_RU[m - 1];
+      var tdRev = document.createElement('td'); tdRev.textContent = fmt(r);
+      var tdExp = document.createElement('td'); tdExp.textContent = fmt(e);
+      var tdProfit = document.createElement('td'); tdProfit.textContent = fmt(profit);
+      tdProfit.className = profit < 0 ? 'profit-bad' : 'profit-good';
+      var tdCount = document.createElement('td'); tdCount.textContent = String(count);
+      var tdAvg = document.createElement('td'); tdAvg.textContent = avgCheck != null ? fmt(avgCheck) : '—';
+      tr.appendChild(tdMonth); tr.appendChild(tdRev); tr.appendChild(tdExp);
+      tr.appendChild(tdProfit); tr.appendChild(tdCount); tr.appendChild(tdAvg);
+      tbody.appendChild(tr);
+    }
+
+    var totalProfit = totalRev - totalExp;
+    document.getElementById('cmpTotalRev').textContent = fmt(totalRev);
+    document.getElementById('cmpTotalExp').textContent = fmt(totalExp);
+    var profitCell = document.getElementById('cmpTotalProfit');
+    profitCell.textContent = fmt(totalProfit);
+    profitCell.className = totalProfit < 0 ? 'profit-bad' : 'profit-good';
+    document.getElementById('cmpTotalCount').textContent = String(totalCount);
+    document.getElementById('cmpTotalAvg').textContent = totalCount > 0 ? fmt(totalRev / totalCount) : '—';
   }
 
   var MAIN_SERVICE_KEYS = ["cockroach", "bedbug", "flying", "rodent"];
