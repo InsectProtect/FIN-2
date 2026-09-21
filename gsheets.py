@@ -84,6 +84,65 @@ def get_revenue_by_month(year: int) -> dict:
     return out
 
 
+SERVICE_LABELS = {
+    "gandaci": "Тараканы",
+    "plosnite": "Клопы",
+    "zburatoare": "Летающие",
+    "rozatoare": "Грызуны",
+    "furnici": "Муравьи",
+    "viespi": "Осы",
+    "purici": "Блохи",
+    "infectie": "Дезинфекция",
+}
+SERVICE_ORDER = ["gandaci", "plosnite", "zburatoare", "rozatoare", "furnici", "viespi", "purici", "infectie"]
+
+
+def get_revenue_by_service(year: int) -> list:
+    """[{"key":.., "label":.., "count":.., "total":..}, ...] — сколько
+    вызовов и сколько денег принёс каждый вид вредителя/услуги (колонка
+    Daunatori на листах месяцев «Ip {year}»). Читает те же 12 листов
+    одним batch-запросом, что и get_revenue_by_month."""
+    sh = _open(os.environ["SHEET_REVENUE_NAME"])
+    existing_titles = {ws.title for ws in sh.worksheets()}
+    ranges = [f"'{name}'" for name in MONTH_SHEETS if name in existing_titles]
+    stats = {key: {"count": 0, "total": 0.0} for key in SERVICE_ORDER}
+    stats["other"] = {"count": 0, "total": 0.0}
+    if not ranges:
+        return _service_stats_to_list(stats)
+
+    value_ranges = sh.values_batch_get(ranges)["valueRanges"]
+    for vr in value_ranges:
+        rows = vr.get("values", [])
+        if not rows:
+            continue
+        header = [h.strip() for h in rows[0]]
+        cash_cols = [idx for idx, h in enumerate(header) if h.upper().startswith("PRET C")]
+        inv_col = next((idx for idx, h in enumerate(header) if h.strip() == "PRET F"), None)
+        daun_col = next((idx for idx, h in enumerate(header) if h.strip().lower() == "daunatori"), None)
+        if daun_col is None:
+            continue
+        for row in rows[1:]:
+            total = 0.0
+            for idx in cash_cols:
+                if idx < len(row):
+                    total += _to_float(row[idx])
+            if inv_col is not None and inv_col < len(row):
+                total += _to_float(row[inv_col])
+            raw = row[daun_col].strip().lower() if daun_col < len(row) else ""
+            if not raw and total == 0:
+                continue  # пустая строка-разделитель между днями
+            key = raw if raw in stats else "other"
+            stats[key]["count"] += 1
+            stats[key]["total"] += total
+    return _service_stats_to_list(stats)
+
+
+def _service_stats_to_list(stats: dict) -> list:
+    out = [{"key": key, "label": SERVICE_LABELS[key], **stats[key]} for key in SERVICE_ORDER]
+    out.append({"key": "other", "label": "Другое", **stats["other"]})
+    return out
+
+
 def _to_float(v: str) -> float:
     v = (v or "").strip().replace("\xa0", "").replace(" ", "").replace(",", ".")
     try:
