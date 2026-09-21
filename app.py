@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 import auth
+import bank_statement
 import forecast
 import gdrive
 import gsheets
@@ -265,6 +266,26 @@ async def api_delete_expense(init_data: str = Form(...), pin: str = Form(""), ro
     _authed_user(init_data, pin)
     gsheets.delete_expense(row)
     return {"ok": True}
+
+
+@app.post("/api/bank_statement")
+async def api_bank_statement(
+    init_data: str = Form(...),
+    pin: str = Form(""),
+    file: UploadFile = File(...),
+):
+    _authed_user(init_data, pin)
+    data = await file.read()
+    result = bank_statement.parse_bank_statement(data)
+
+    sheet_total = None
+    if result.get("period_from") and result.get("period_to"):
+        try:
+            sheet_total = gsheets.get_expenses_total_in_range(result["period_from"], result["period_to"])
+        except Exception:
+            sheet_total = None
+    result["sheet_total"] = sheet_total
+    return JSONResponse(result)
 
 
 async def _send_receipt_to_telegram(data: bytes, filename: str, content_type: str, *,
