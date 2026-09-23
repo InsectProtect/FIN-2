@@ -120,9 +120,80 @@ def _pest_donut(pest_list: list, styles: dict):
     return drawing
 
 
+HP_STATUS_LABEL = {
+    "good": "Хорошо",
+    "warn": "Внимание",
+    "critical": "Критично",
+    "unknown": "Недостаточно данных",
+}
+HP_STATUS_COLOR = {
+    "good": ("#248a3d", "#e6f6ea"),
+    "warn": ("#c77700", "#fff1d6"),
+    "critical": ("#d70015", "#fce4e4"),
+    "unknown": ("#6e6e73", "#f5f5f7"),
+}
+
+
+def _hp_section(hp: dict | None, balance: dict | None, styles: dict, h2_style, normal_style) -> list:
+    """Блок «Здоровье компании (HP)» — тот же расчёт и та же логика, что и
+    карточка HP на главном экране приложения (см. forecast.build_hp):
+    плитки Резерв / Средний расход в месяц / Хватит ещё на, статус
+    (хорошо/внимание/критично) цветной плашкой, и, если введён остаток
+    кассы+счёта вручную, строка с датой и суммами этого остатка."""
+    if not hp:
+        return []
+    status = hp.get("status", "unknown")
+    color_hex, bg_hex = HP_STATUS_COLOR.get(status, HP_STATUS_COLOR["unknown"])
+    status_style = ParagraphStyle(
+        "HpStatus", parent=styles["Normal"], fontName="DejaVuSans-Bold",
+        fontSize=11, textColor=colors.HexColor(color_hex),
+    )
+
+    flow = [Paragraph("Здоровье компании (HP)", h2_style), Spacer(1, 6)]
+
+    status_table = Table([[Paragraph(HP_STATUS_LABEL.get(status, "—"), status_style)]],
+                          colWidths=[170 * mm])
+    status_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(bg_hex)),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    flow.append(status_table)
+    flow.append(Spacer(1, 8))
+
+    months_str = str(hp["months"]) if hp.get("months") is not None else "—"
+    hp_kpi_styles = {
+        "kpi_value": ParagraphStyle("HpKpiValue", parent=styles["Normal"], fontName="DejaVuSans-Bold",
+                                     fontSize=13, leading=15, textColor=colors.HexColor("#1d1d1f")),
+        "kpi_label": ParagraphStyle("HpKpiLabel", parent=styles["Normal"], fontName="DejaVuSans",
+                                     fontSize=8, textColor=colors.HexColor("#6e6e73")),
+    }
+    flow.append(_kpi_dashboard([
+        (_fmt(hp.get("reserve", 0)), "Резерв, MDL"),
+        (_fmt(hp.get("avg_burn", 0)), "Средний расход/мес, MDL"),
+        (months_str, "Хватит ещё на, мес."),
+    ], hp_kpi_styles))
+    flow.append(Spacer(1, 8))
+
+    if balance:
+        d = balance.get("date", "")
+        note = (
+            f"Остаток указан на {d}: касса {_fmt(balance.get('cash', 0))} MDL, "
+            f"расчётный счёт {_fmt(balance.get('account', 0))} MDL "
+            f"(итого {_fmt(balance.get('total', 0))} MDL) — резерв HP считается от этой суммы."
+        )
+    else:
+        note = "Остаток кассы/счёта не введён — резерв HP считается по накопленной прибыли с начала года."
+    flow.append(Paragraph(note, normal_style))
+    flow.append(Spacer(1, 18))
+    return flow
+
+
 def build_pdf(year: int, revenue: dict, expenses: dict, by_category: dict,
               month: int | None = None, pest_list: list | None = None,
-              total_requests: int = 0) -> bytes:
+              total_requests: int = 0, hp: dict | None = None,
+              balance: dict | None = None) -> bytes:
     """
     revenue: {month(1-12): {"cash":..,"invoice":..,"total":..}}
     expenses: {month(1-12): total_float}
@@ -135,6 +206,12 @@ def build_pdf(year: int, revenue: dict, expenses: dict, by_category: dict,
         приложении, за тот же период.
     total_requests: суммарное количество вызовов за период (для плитки
         "Заявок итого").
+    hp: результат forecast.build_hp(...) — {"reserve","avg_burn","months",
+        "status","has_balance"} — тот же расчёт, что и карточка HP на
+        главном экране приложения. None — блок HP в отчёте не показывается.
+    balance: {"date","cash","account","total"} — последний вручную
+        введённый остаток (см. gsheets.get_latest_balance), для строки
+        под плитками HP. None, если остаток не вводили.
     """
     _ensure_font()
 
@@ -187,6 +264,9 @@ def build_pdf(year: int, revenue: dict, expenses: dict, by_category: dict,
     ], kpi_styles)
     story.append(dashboard)
     story.append(Spacer(1, 18))
+
+    # Блок HP («здоровье компании») — тот же расчёт, что на главном экране.
+    story.extend(_hp_section(hp, balance, styles, h2_style, normal_style))
 
     # Круглый дашборд по видам вредителей — тот же, что в приложении.
     donut = _pest_donut(pest_list, kpi_styles)
