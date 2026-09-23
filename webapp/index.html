@@ -402,6 +402,13 @@
       <h3>Займы/кредиты — не учтены</h3>
       <p class="forecast-note" id="bankLoanNote"></p>
     </div>
+    <div class="card" id="bankRecurringCard" style="display:none;">
+      <h3>Похоже на регулярные расходы</h3>
+      <p class="forecast-note">Эти платежи встречаются минимум 2 месяца подряд в этой выписке — стоит добавить их в «Регулярные расходы», чтобы не забыть.</p>
+      <div id="bankRecurringList"></div>
+      <button type="button" class="primary" id="bankRecurringAddBtn" style="margin-top:10px;">Добавить выбранные в «Регулярные»</button>
+      <div class="status" id="bankRecurringStatus"></div>
+    </div>
   </div>
 
   <div class="view" id="view-compare">
@@ -446,9 +453,11 @@
         <div class="kpi"><div class="label">Итого в месяц</div><div class="value" id="recurringTotal">—</div></div>
       </div>
     </div>
-    <div id="recurringList"></div>
-    <div class="card" id="recurringSuggestCard">
-      <h3>Предложения из выписки</h3>
+    <div class="hist-month-header open" id="recurringListToggle"><span class="name"><span class="chevron">▶</span>Ваш список (<span id="recurringListCount">0</span>)</span></div>
+    <div class="hist-month-items open" id="recurringList"></div>
+
+    <div class="hist-month-header" id="recurringSuggestCard" style="display:none;"><span class="name"><span class="chevron">▶</span>Предложения из выписки за год (<span id="recurringSuggestCount">0</span>)</span></div>
+    <div class="hist-month-items" id="recurringSuggestBody">
       <p class="forecast-note">Найдено в вашей годовой выписке — платежи, повторяющиеся из месяца в месяц. Отметьте нужные и добавьте в список одной кнопкой, ничего вводить не нужно.</p>
       <div id="recurringSuggestList"></div>
       <button type="button" class="primary" id="recurringSuggestAddBtn" style="margin-top:10px;">Добавить выбранные</button>
@@ -589,6 +598,15 @@
       if (tab.dataset.tab === 'compare') renderCompare(lastData);
       if (tab.dataset.tab === 'recurring') loadRecurring();
     });
+  });
+
+  document.getElementById('recurringListToggle').addEventListener('click', function(){
+    this.classList.toggle('open');
+    document.getElementById('recurringList').classList.toggle('open');
+  });
+  document.getElementById('recurringSuggestCard').addEventListener('click', function(){
+    this.classList.toggle('open');
+    document.getElementById('recurringSuggestBody').classList.toggle('open');
   });
 
   document.getElementById('f_currency').addEventListener('change', function(){
@@ -1289,15 +1307,19 @@
 
   function renderRecurringSuggestions(){
     var wrap = document.getElementById('recurringSuggestList');
-    var card = document.getElementById('recurringSuggestCard');
+    var header = document.getElementById('recurringSuggestCard');
+    var body = document.getElementById('recurringSuggestBody');
     var existingNames = lastRecurring.map(function(x){ return x.name; });
     var remaining = RECURRING_SUGGESTIONS.filter(function(s){ return existingNames.indexOf(s.name) === -1; });
 
+    document.getElementById('recurringSuggestCount').textContent = remaining.length;
     if (!remaining.length) {
-      card.style.display = 'none';
+      header.style.display = 'none';
+      body.classList.remove('open');
+      header.classList.remove('open');
       return;
     }
-    card.style.display = 'block';
+    header.style.display = 'flex';
     wrap.innerHTML = '';
     remaining.forEach(function(s, idx){
       var row = document.createElement('label');
@@ -1366,6 +1388,7 @@
     var total = document.getElementById('recurringTotal');
     list.innerHTML = '';
     count.textContent = items.length;
+    document.getElementById('recurringListCount').textContent = items.length;
     var sum = items.reduce(function(a, it){ return a + (it.amount || 0); }, 0);
     total.textContent = fmt(sum);
 
@@ -1618,7 +1641,65 @@
     } else {
       loanCard.style.display = 'none';
     }
+
+    renderBankRecurringSuggestions(data.recurring_suggestions || []);
   }
+
+  function renderBankRecurringSuggestions(list){
+    var card = document.getElementById('bankRecurringCard');
+    var wrap = document.getElementById('bankRecurringList');
+    var status = document.getElementById('bankRecurringStatus');
+    status.textContent = ''; status.className = 'status';
+    if (!list.length) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = 'block';
+    wrap.innerHTML = '';
+    list.forEach(function(s, idx){
+      var row = document.createElement('label');
+      row.className = 'suggest-row';
+      row.innerHTML =
+        '<input type="checkbox" class="bank-suggest-check" data-idx="' + idx + '" checked>' +
+        '<span class="suggest-name">' + s.name + '<span class="suggest-meta">' + s.streak + ' мес. подряд · всего встречалось ' + s.months_count + '</span></span>' +
+        '<span class="suggest-amount">' + fmt(s.amount) + '</span>';
+      wrap.appendChild(row);
+    });
+  }
+
+  document.getElementById('bankRecurringAddBtn').addEventListener('click', function(){
+    var checks = document.querySelectorAll('.bank-suggest-check:checked');
+    if (!checks.length || !lastBankData) return;
+    var btn = this;
+    var status = document.getElementById('bankRecurringStatus');
+    btn.disabled = true;
+    status.textContent = 'Добавляем...'; status.className = 'status';
+
+    var list = lastBankData.recurring_suggestions || [];
+    var toAdd = Array.prototype.map.call(checks, function(c){ return list[parseInt(c.dataset.idx, 10)]; });
+
+    var chain = Promise.resolve();
+    toAdd.forEach(function(item){
+      chain = chain.then(function(){
+        var fd = new FormData();
+        fd.append('init_data', initData);
+        fd.append('pin', pin);
+        fd.append('name', item.name);
+        fd.append('category', '');
+        fd.append('amount', item.amount);
+        fd.append('frequency', item.streak + ' мес. подряд (из выписки)');
+        fd.append('note', item.sample_description || '');
+        return fetch('/api/recurring/add', { method: 'POST', body: fd });
+      });
+    });
+
+    chain.then(function(){
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      status.textContent = 'Добавлено: ' + toAdd.length + '. Смотрите во вкладке «Регулярные».'; status.className = 'status ok';
+    }).catch(function(){
+      status.textContent = 'Не всё удалось добавить, попробуйте ещё раз.'; status.className = 'status err';
+    }).finally(function(){ btn.disabled = false; });
+  });
 })();
 </script>
 </body>
