@@ -295,8 +295,26 @@ async def api_report(init_data: str, pin: str = "", year: int = datetime.date.to
         pest_list = list(agg.values())
     total_requests = sum(item["count"] for item in pest_list)
 
+    # HP («здоровье компании») — тот же расчёт, что и на главном экране
+    # приложения (см. /api/summary), чтобы в PDF-отчёте была та же картина.
+    latest_balance = gsheets.get_latest_balance()
+    balance_for_hp = None
+    balance_info = None
+    if latest_balance:
+        bal_month = latest_balance["date"].month if latest_balance["date"].year == year else 0
+        balance_for_hp = {"month": bal_month, "total": latest_balance["total"]}
+        balance_info = {
+            "date": latest_balance["date"].isoformat(),
+            "cash": latest_balance["cash"],
+            "account": latest_balance["account"],
+            "total": latest_balance["total"],
+        }
+    revenue_total = {m: v["total"] for m, v in revenue.items()}
+    hp = forecast.build_hp(revenue_total, expenses, balance=balance_for_hp)
+
     pdf_bytes = report.build_pdf(year, revenue, expenses, by_cat_report,
-                                  month=month_i, pest_list=pest_list, total_requests=total_requests)
+                                  month=month_i, pest_list=pest_list, total_requests=total_requests,
+                                  hp=hp, balance=balance_info)
     filename = f"otchet_{year}.pdf" if not month_i else f"otchet_{year}_{month_i:02d}.pdf"
     return Response(
         content=pdf_bytes,
