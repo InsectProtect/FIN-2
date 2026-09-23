@@ -205,6 +205,25 @@ def add_expense(date: str, category: str, description: str, account: str,
         amount, rate, mdl, has_doc, f"добавлено через Telegram: {added_by}", receipt_cell
     ], value_input_option="USER_ENTERED")
 
+    # Если расход со счёта «Касса» или «Расчётный счёт» — сразу вычитаем
+    # его из вручную введённого остатка (см. set_balance/get_latest_balance,
+    # используется для HP на главном экране), чтобы остаток не «застывал»
+    # на старой цифре, а уменьшался с каждым новым расходом автоматически.
+    if account in ("Касса", "Расчётный счёт"):
+        _subtract_from_balance(account, mdl)
+
+
+def _subtract_from_balance(account: str, amount_mdl: float) -> None:
+    latest = get_latest_balance()
+    cash = latest["cash"] if latest else 0.0
+    bank = latest["account"] if latest else 0.0
+    if account == "Касса":
+        cash -= amount_mdl
+    else:
+        bank -= amount_mdl
+    today = datetime.date.today().isoformat()
+    set_balance(date=today, cash=cash, account=bank, added_by="авто (расход списан)")
+
 
 def get_expenses_summary(year: int) -> tuple[dict, dict, dict]:
     """Возвращает (by_month, by_category, by_month_category) — все три
