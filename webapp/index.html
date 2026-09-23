@@ -130,6 +130,11 @@
   .hist-actions button.danger{color:var(--critical);border-color:var(--critical);}
   .edit-banner{background:var(--good-bg);color:var(--good);border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
   .edit-banner button{background:none;border:none;color:var(--good);font-weight:600;font-size:13px;font-family:inherit;}
+  .suggest-row{display:flex;align-items:center;gap:10px;background:var(--surface);border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:pointer;}
+  .suggest-row input{width:auto;margin:0;flex:0 0 auto;}
+  .suggest-name{flex:1;font-size:14px;font-weight:600;display:flex;flex-direction:column;gap:2px;}
+  .suggest-meta{font-size:12px;font-weight:400;color:var(--ink-2);}
+  .suggest-amount{font-size:14px;font-weight:700;white-space:nowrap;}
   .svc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .svc-tile{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:12px 14px;}
   .svc-tile .name{font-size:12px;color:var(--ink-2);margin-bottom:6px;}
@@ -442,8 +447,15 @@
       </div>
     </div>
     <div id="recurringList"></div>
+    <div class="card" id="recurringSuggestCard">
+      <h3>Предложения из выписки</h3>
+      <p class="forecast-note">Найдено в вашей годовой выписке — платежи, повторяющиеся из месяца в месяц. Отметьте нужные и добавьте в список одной кнопкой, ничего вводить не нужно.</p>
+      <div id="recurringSuggestList"></div>
+      <button type="button" class="primary" id="recurringSuggestAddBtn" style="margin-top:10px;">Добавить выбранные</button>
+      <div class="status" id="recurringSuggestStatus"></div>
+    </div>
     <div class="card" id="recurringFormCard">
-      <h3 id="recurringFormTitle">Добавить регулярный расход</h3>
+      <h3 id="recurringFormTitle">Добавить свой (не из списка выше)</h3>
       <label>Название</label>
       <input type="text" id="rf_name" placeholder="Например, Лизинг (O.C.N. BT LEASING)">
       <label>Категория</label>
@@ -1251,6 +1263,87 @@
   var lastRecurring = [];
   var recurringEditRow = null;
 
+  // Найдено в годовой выписке банка (01.01–21.09.2026) — платежи,
+  // повторяющиеся из месяца в месяц минимум 3 раза. Сумма — среднее по
+  // фактическим платежам, для ориентира (можно поправить после добавления).
+  var RECURRING_SUGGESTIONS = [
+    {name: "Лизинг (O.C.N. BT LEASING)", category: "Лизинг", amount: 7050, frequency: "Ежемесячно"},
+    {name: "Комиссия банка (переводы)", category: "Банковские комиссии", amount: 14, frequency: "Ежемесячно"},
+    {name: "Комиссия банка (эквайринг карт)", category: "Банковские комиссии", amount: 38, frequency: "Ежемесячно"},
+    {name: "Соц. взносы / налоги (Trezoreria de Stat)", category: "Налоги и взносы", amount: 4385, frequency: "Ежемесячно"},
+    {name: "Закупка препаратов (BIOPROTECT SRL)", category: "Химия и расходники", amount: 4844, frequency: "Почти ежемесячно"},
+    {name: "Зарплата — Gavrilita Mihail", category: "Зарплата и взносы", amount: 7482, frequency: "Ежемесячно"},
+    {name: "Зарплата — Solodchi Olivia", category: "Зарплата и взносы", amount: 5191, frequency: "Ежемесячно"},
+    {name: "Топливо (PETROM MOLDOVA)", category: "Транспорт", amount: 6042, frequency: "Ежемесячно"},
+    {name: "Зарплата — Артём (Dede Artiom)", category: "Зарплата и взносы", amount: 7484, frequency: "Ежемесячно"},
+    {name: "CARDREAM SRL", category: "Уточнить категорию", amount: 5507, frequency: "Периодически"},
+    {name: "Транспорт/логистика (FAN TRANSPORTATION)", category: "Транспорт", amount: 489, frequency: "Периодически"},
+    {name: "Navitel Auto (GPS-подписка)", category: "Подписки", amount: 300, frequency: "Ежемесячно"},
+    {name: "Зарплата — Golban Daniel", category: "Зарплата и взносы", amount: 3588, frequency: "Периодически"},
+    {name: "S.C. LUXEXIM GS S.R.L.", category: "Уточнить категорию", amount: 6000, frequency: "Периодически"},
+    {name: "Связь (Moldcell)", category: "Связь и интернет", amount: 3800, frequency: "Ежемесячно"},
+    {name: "EVOL AKIV SRL", category: "Уточнить категорию", amount: 4100, frequency: "Периодически"},
+    {name: "Зарплата — Belivanteva Olga", category: "Зарплата и взносы", amount: 5072, frequency: "Периодически"},
+    {name: "Страхование (AMBER ASIG)", category: "Страхование", amount: 3087, frequency: "Периодически"}
+  ];
+
+  function renderRecurringSuggestions(){
+    var wrap = document.getElementById('recurringSuggestList');
+    var card = document.getElementById('recurringSuggestCard');
+    var existingNames = lastRecurring.map(function(x){ return x.name; });
+    var remaining = RECURRING_SUGGESTIONS.filter(function(s){ return existingNames.indexOf(s.name) === -1; });
+
+    if (!remaining.length) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = 'block';
+    wrap.innerHTML = '';
+    remaining.forEach(function(s, idx){
+      var row = document.createElement('label');
+      row.className = 'suggest-row';
+      row.innerHTML =
+        '<input type="checkbox" class="suggest-check" data-idx="' + RECURRING_SUGGESTIONS.indexOf(s) + '" checked>' +
+        '<span class="suggest-name">' + s.name + '<span class="suggest-meta">' + s.category + ' · ' + s.frequency + '</span></span>' +
+        '<span class="suggest-amount">' + fmt(s.amount) + '</span>';
+      wrap.appendChild(row);
+    });
+  }
+
+  document.getElementById('recurringSuggestAddBtn').addEventListener('click', function(){
+    var checks = document.querySelectorAll('.suggest-check:checked');
+    if (!checks.length) return;
+    var btn = this;
+    var status = document.getElementById('recurringSuggestStatus');
+    btn.disabled = true;
+    status.textContent = 'Добавляем...'; status.className = 'status';
+
+    var toAdd = Array.prototype.map.call(checks, function(c){ return RECURRING_SUGGESTIONS[parseInt(c.dataset.idx, 10)]; });
+
+    var chain = Promise.resolve();
+    toAdd.forEach(function(item){
+      chain = chain.then(function(){
+        var fd = new FormData();
+        fd.append('init_data', initData);
+        fd.append('pin', pin);
+        fd.append('name', item.name);
+        fd.append('category', item.category);
+        fd.append('amount', item.amount);
+        fd.append('frequency', item.frequency);
+        fd.append('note', '');
+        return fetch('/api/recurring/add', { method: 'POST', body: fd });
+      });
+    });
+
+    chain.then(function(){
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      status.textContent = 'Добавлено: ' + toAdd.length + '.'; status.className = 'status ok';
+      loadRecurring();
+    }).catch(function(){
+      status.textContent = 'Не всё удалось добавить, проверьте список и попробуйте ещё раз.'; status.className = 'status err';
+    }).finally(function(){ btn.disabled = false; });
+  });
+
   function loadRecurring(){
     var status = document.getElementById('recurringStatus');
     status.textContent = 'Загружаем...'; status.className = 'status';
@@ -1259,6 +1352,7 @@
       .then(function(data){
         lastRecurring = data.items || [];
         renderRecurring(lastRecurring);
+        renderRecurringSuggestions();
         status.textContent = '';
       })
       .catch(function(){
@@ -1326,7 +1420,7 @@
     document.getElementById('rf_amount').value = '';
     document.getElementById('rf_frequency').value = '';
     document.getElementById('rf_note').value = '';
-    document.getElementById('recurringFormTitle').textContent = 'Добавить регулярный расход';
+    document.getElementById('recurringFormTitle').textContent = 'Добавить свой (не из списка выше)';
     document.getElementById('recurringSaveBtn').textContent = 'Добавить';
     document.getElementById('recurringCancelBtn').style.display = 'none';
     document.getElementById('recurringFormStatus').textContent = '';
