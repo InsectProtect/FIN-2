@@ -296,8 +296,11 @@ def delete_expense(row: int) -> None:
     ws.delete_rows(row)
 
 
+_BANK_EXPENSE_PREFIX = "Расходы по банковской выписке за "
+
+
 def bank_expense_marker(period_from: str, period_to: str, month_key: str) -> str:
-    return f"Расходы по банковской выписке за {month_key} (документ {period_from} – {period_to})"
+    return f"{_BANK_EXPENSE_PREFIX}{month_key} (документ {period_from} – {period_to})"
 
 
 def upsert_bank_expense(period_from: str, period_to: str, month_key: str, amount: float, added_by: str) -> None:
@@ -308,19 +311,25 @@ def upsert_bank_expense(period_from: str, period_to: str, month_key: str, amount
     месяцев (например, с начала года) — тогда эта функция вызывается один
     раз на каждый месяц, покрытый выпиской.
 
-    Если для этого же месяца этой же выписки такая строка уже есть (по
-    совпадению категории и текста описания), просто обновляет в ней сумму —
-    чтобы повторная загрузка той же выписки не создавала дубли."""
+    Ищем существующую строку ТОЛЬКО по месяцу (а не по точному тексту
+    периода документа) — иначе повторная загрузка той же самой выписки, но
+    с другим диапазоном дат (например, «01.09–15.09», а через неделю
+    «01.09–23.09» — банк отдаёт выписку по факту на сегодня, а не строго
+    по календарным месяцам), создавала бы для одного и того же месяца
+    ВТОРУЮ строку вместо замены первой — и расходы за месяц задваивались
+    бы. Совпадение по месяцу гарантирует, что для месяца всегда ровно одна
+    строка с последней подтверждённой суммой."""
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     ws = sh.worksheet("Расходы")
     all_rows = ws.get_all_values()
     data_rows = all_rows[4:]
     marker = bank_expense_marker(period_from, period_to, month_key)
+    marker_prefix = f"{_BANK_EXPENSE_PREFIX}{month_key} "
     date = f"{month_key}-01"
 
     target_row = None
     for i, row in enumerate(data_rows):
-        if len(row) > 3 and row[2] == "Банковские переводы" and row[3] == marker:
+        if len(row) > 3 and row[2] == "Банковские переводы" and row[3].startswith(marker_prefix):
             target_row = i + 5
             break
 
@@ -381,11 +390,19 @@ def _get_bank_income_ws(sh: gspread.Spreadsheet):
 
 
 def upsert_bank_income(period_from: str, period_to: str, month_key: str, amount: float) -> None:
-    """Добавляет либо обновляет (если для этого же месяца этой же выписки
-    уже подтверждали поступления) одну строку с суммой поступлений за
-    КОНКРЕТНЫЙ месяц (month_key — «ГГГГ-ММ») — чтобы повторная загрузка
-    той же выписки не задваивала выручку, а более длинная выписка (за
-    несколько месяцев сразу) корректно распределялась по месяцам."""
+    """Добавляет либо обновляет (если для этого месяца поступления уже
+    подтверждали раньше) одну строку с суммой поступлений за КОНКРЕТНЫЙ
+    месяц (month_key — «ГГГГ-ММ») — чтобы повторная загрузка выписки не
+    задваивала выручку, а более длинная выписка (за несколько месяцев
+    сразу) корректно распределялась по месяцам.
+
+    Ищем существующую строку ТОЛЬКО по месяцу (колонка «Месяц»), а не по
+    точному совпадению периода документа (period_from/period_to) — иначе
+    выписка «по факту на сегодня» с растущим диапазоном дат (например,
+    сначала «01.09–15.09», через неделю «01.09–23.09») создавала бы для
+    одного и того же месяца вторую строку вместо замены первой, и
+    поступления задваивались бы. Совпадение по месяцу гарантирует, что на
+    месяц всегда ровно одна строка с последней подтверждённой суммой."""
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     ws = _get_bank_income_ws(sh)
     all_rows = ws.get_all_values()
@@ -394,7 +411,7 @@ def upsert_bank_income(period_from: str, period_to: str, month_key: str, amount:
 
     target_row = None
     for i, row in enumerate(data_rows):
-        if len(row) >= 4 and row[1] == period_from and row[2] == period_to and row[3] == month_key:
+        if len(row) >= 4 and row[3] == month_key:
             target_row = i + 2  # +1 за заголовок, +1 т.к. индексация с 1
             break
 
