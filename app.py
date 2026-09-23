@@ -151,6 +151,20 @@ async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.t
     # введён в ТОМ ЖЕ году, что и запрошенный отчёт — иначе (остаток за
     # прошлый год) считаем его точкой отсчёта на начало этого года (month=0).
     latest_balance = gsheets.get_latest_balance()
+
+    # Автоперенос: если последний введённый остаток относится к ПРОШЛОМУ
+    # месяцу (пользователь давно не обновлял кассу/счёт), переносим те же
+    # цифры в текущий месяц сами — новой строкой с сегодняшней датой. Так
+    # остаток не "теряется" с началом нового месяца и не нужно вручную
+    # вводить его заново каждый раз, если по факту ничего не изменилось
+    # (изменится — можно поправить и сохранить как обычно).
+    if latest_balance and (latest_balance["date"].year, latest_balance["date"].month) != (today.year, today.month):
+        gsheets.set_balance(
+            date=today.isoformat(), cash=latest_balance["cash"], account=latest_balance["account"],
+            added_by="автоперенос с прошлого месяца",
+        )
+        latest_balance = gsheets.get_latest_balance()
+
     balance_for_hp = None
     balance_info = None
     if latest_balance:
