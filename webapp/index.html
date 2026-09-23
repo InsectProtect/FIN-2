@@ -9,14 +9,16 @@
   :root{
     --bg:#ffffff;--surface:#f5f5f7;--ink:#1d1d1f;--ink-2:#6e6e73;--ink-3:#86868b;
     --accent:#f27b21;--accent-ink:#ffffff;--good:#248a3d;--good-bg:#e6f6ea;
-    --critical:#d70015;--border:#d2d2d7;
+    --critical:#d70015;--critical-bg:#fce4e4;--border:#d2d2d7;
+    --warn:#c77700;--warn-bg:#fff1d6;
     --pest-cockroach:#f27b21;--pest-bedbug:#0071e3;--pest-flying:#248a3d;--pest-rodent:#af52de;--pest-other:#86868b;
   }
   @media (prefers-color-scheme: dark){
     :root{
       --bg:#000000;--surface:#1c1c1e;--ink:#f5f5f7;--ink-2:#a1a1a6;--ink-3:#8a8a8e;
       --accent:#ff8c42;--accent-ink:#1d1d1f;--good:#32d74b;--good-bg:rgba(50,215,75,.14);
-      --critical:#ff453a;--border:#38383a;
+      --critical:#ff453a;--critical-bg:rgba(255,69,58,.16);--border:#38383a;
+      --warn:#ffd60a;--warn-bg:rgba(255,214,10,.16);
       --pest-cockroach:#d9670f;--pest-bedbug:#2f7fd6;--pest-flying:#2a9c4c;--pest-rodent:#a545df;--pest-other:#8a8a8e;
     }
   }
@@ -149,6 +151,20 @@
   .donut-legend .amt{color:var(--ink-2);font-size:12px;margin-left:2px;}
   .donut-legend .pct{font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums;}
 
+  .hp-card{margin-top:0;margin-bottom:16px;}
+  .hp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .hp-badge{font-size:11px;font-weight:700;padding:4px 11px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;flex-shrink:0;}
+  .hp-badge.good{background:var(--good-bg);color:var(--good);}
+  .hp-badge.warn{background:var(--warn-bg);color:var(--warn);}
+  .hp-badge.critical{background:var(--critical-bg);color:var(--critical);}
+  .hp-badge.unknown{background:var(--surface);color:var(--ink-2);}
+  .hp-bar-track{height:16px;border-radius:9px;background:var(--surface);border:1px solid var(--border);overflow:hidden;}
+  .hp-bar-fill{height:100%;border-radius:9px;transition:width .4s ease;}
+  .hp-bar-fill.good{background:var(--good);}
+  .hp-bar-fill.warn{background:var(--warn);}
+  .hp-bar-fill.critical{background:var(--critical);}
+  .hp-bar-fill.unknown{background:var(--border);}
+
   .cmp-picker{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}
   .cmp-chip{padding:6px 12px;border-radius:10px;background:var(--surface);color:var(--ink-2);
     font-size:12.5px;font-weight:600;cursor:pointer;user-select:none;border:1px solid var(--border);}
@@ -205,6 +221,15 @@
   </div>
 
   <div class="view active" id="view-overview">
+    <div class="card hp-card" id="hpCard">
+      <div class="hp-head">
+        <h3 style="margin:0;">Здоровье компании (HP)</h3>
+        <span class="hp-badge unknown" id="hpBadge">—</span>
+      </div>
+      <div class="hp-bar-track"><div class="hp-bar-fill unknown" id="hpBarFill" style="width:4%;"></div></div>
+      <p class="forecast-note" id="hpNote">Считаем, как только появятся данные о расходах за год.</p>
+    </div>
+
     <label style="margin-top:0;">Период</label>
     <select id="monthFilter">
       <option value="all">Весь год</option>
@@ -597,6 +622,7 @@
     document.getElementById('fcRevenue').textContent = k.revenue_forecast != null ? fmt(k.revenue_forecast) : 'мало данных';
     document.getElementById('fcExpenses').textContent = k.expenses_forecast != null ? fmt(k.expenses_forecast) : 'мало данных';
 
+    renderHP(k.hp);
     renderServices(data.revenue_by_service_month, periodLabel);
     renderCompare(data);
   }
@@ -638,6 +664,39 @@
       picker.querySelectorAll('.cmp-chip').forEach(function(c){ c.classList.remove('active'); });
       renderCompareTable(lastData);
     });
+  }
+
+  var HP_STATUS_LABEL = {good: 'Стабильно', warn: 'Внимание', critical: 'Критично', unknown: 'Мало данных'};
+
+  function renderHP(hp){
+    var badge = document.getElementById('hpBadge');
+    var fill = document.getElementById('hpBarFill');
+    var note = document.getElementById('hpNote');
+    if (!badge || !fill || !note) return;
+
+    hp = hp || {status: 'unknown', months: null, reserve: 0, avg_burn: 0};
+    var status = hp.status || 'unknown';
+
+    badge.className = 'hp-badge ' + status;
+    badge.textContent = HP_STATUS_LABEL[status] || '—';
+    fill.className = 'hp-bar-fill ' + status;
+
+    // Полоска заполняется по запасу в месяцах: 6 месяцев и больше — бар
+    // полный. У "unknown" бар почти пустой (серый), просто чтобы было
+    // видно карточку.
+    var pct = 4;
+    if (hp.months != null) {
+      pct = Math.max(4, Math.min(100, (Math.max(hp.months, 0) / 6) * 100));
+    }
+    fill.style.width = pct + '%';
+
+    if (status === 'unknown') {
+      note.textContent = 'Считаем, как только появятся данные о расходах хотя бы за один месяц.';
+    } else if (hp.reserve <= 0) {
+      note.textContent = 'Резерв с начала года уже отрицательный (' + fmt(hp.reserve) + ') — расходы превышают выручку. Средний расход: ' + fmt(hp.avg_burn) + '/мес.';
+    } else {
+      note.textContent = hp.months + ' мес. запаса при среднем расходе ' + fmt(hp.avg_burn) + '/мес (резерв с начала года: ' + fmt(hp.reserve) + ').';
+    }
   }
 
   function renderCompare(data){
