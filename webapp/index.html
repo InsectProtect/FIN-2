@@ -164,6 +164,9 @@
   .hp-bar-fill.warn{background:var(--warn);}
   .hp-bar-fill.critical{background:var(--critical);}
   .hp-bar-fill.unknown{background:var(--border);}
+  .hp-balance{margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
+  .hp-balance-row{display:flex;gap:8px;}
+  .hp-balance-row input{flex:1;min-width:0;}
 
   .cmp-picker{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}
   .cmp-chip{padding:6px 12px;border-radius:10px;background:var(--surface);color:var(--ink-2);
@@ -218,6 +221,7 @@
     <div class="tab" data-tab="history">История</div>
     <div class="tab" data-tab="bank">Сверка с банком</div>
     <div class="tab" data-tab="compare">Сравнение</div>
+    <div class="tab" data-tab="recurring">Регулярные</div>
   </div>
 
   <div class="view active" id="view-overview">
@@ -228,6 +232,16 @@
       </div>
       <div class="hp-bar-track"><div class="hp-bar-fill unknown" id="hpBarFill" style="width:4%;"></div></div>
       <p class="forecast-note" id="hpNote">Считаем, как только появятся данные о расходах за год.</p>
+
+      <div class="hp-balance">
+        <p class="forecast-note" id="hpBalanceInfo" style="margin-top:0;">Остаток ещё не указан — HP считается по прибыли с начала года.</p>
+        <div class="hp-balance-row">
+          <input type="number" id="hpCash" placeholder="Касса, MDL" inputmode="decimal" step="0.01">
+          <input type="number" id="hpAccount" placeholder="Расчётный счёт, MDL" inputmode="decimal" step="0.01">
+        </div>
+        <button type="button" class="primary" id="hpSaveBtn" style="margin-top:8px;">Сохранить остаток на сегодня</button>
+        <div class="status" id="hpBalanceStatus"></div>
+      </div>
     </div>
 
     <label style="margin-top:0;">Период</label>
@@ -416,6 +430,35 @@
       </div>
     </div>
   </div>
+
+  <div class="view" id="view-recurring">
+    <div class="card">
+      <h3>Регулярные расходы</h3>
+      <p class="forecast-note">Справочный список расходов, которые повторяются каждый месяц (лизинг, зарплаты, связь и т.д.) — чтобы не забыть и видеть общую сумму. Список не связан с выпиской банка автоматически — редактируйте вручную.</p>
+      <div class="status" id="recurringStatus">Загружаем...</div>
+      <div class="kpis" style="margin-bottom:0;">
+        <div class="kpi"><div class="label">Позиций</div><div class="value" id="recurringCount">—</div></div>
+        <div class="kpi"><div class="label">Итого в месяц</div><div class="value" id="recurringTotal">—</div></div>
+      </div>
+    </div>
+    <div id="recurringList"></div>
+    <div class="card" id="recurringFormCard">
+      <h3 id="recurringFormTitle">Добавить регулярный расход</h3>
+      <label>Название</label>
+      <input type="text" id="rf_name" placeholder="Например, Лизинг (O.C.N. BT LEASING)">
+      <label>Категория</label>
+      <input type="text" id="rf_category" placeholder="Например, Лизинг">
+      <label>Сумма, MDL</label>
+      <input type="number" id="rf_amount" inputmode="decimal" step="0.01" placeholder="0">
+      <label>Периодичность</label>
+      <input type="text" id="rf_frequency" placeholder="Например, Ежемесячно">
+      <label>Примечание</label>
+      <input type="text" id="rf_note" placeholder="Необязательно">
+      <button type="button" class="primary" id="recurringSaveBtn" style="margin-top:10px;">Добавить</button>
+      <button type="button" id="recurringCancelBtn" style="margin-top:8px;display:none;">Отменить изменение</button>
+      <div class="status" id="recurringFormStatus"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -532,6 +575,7 @@
       document.getElementById('view-' + tab.dataset.tab).classList.add('active');
       if (tab.dataset.tab === 'history') loadHistory();
       if (tab.dataset.tab === 'compare') renderCompare(lastData);
+      if (tab.dataset.tab === 'recurring') loadRecurring();
     });
   });
 
@@ -623,6 +667,7 @@
     document.getElementById('fcExpenses').textContent = k.expenses_forecast != null ? fmt(k.expenses_forecast) : 'мало данных';
 
     renderHP(k.hp);
+    renderBalance(data.balance);
     renderServices(data.revenue_by_service_month, periodLabel);
     renderCompare(data);
   }
@@ -690,13 +735,36 @@
     }
     fill.style.width = pct + '%';
 
+    var reserveLabel = hp.has_balance ? 'резерв от введённого остатка' : 'резерв с начала года';
     if (status === 'unknown') {
       note.textContent = 'Считаем, как только появятся данные о расходах хотя бы за один месяц.';
     } else if (hp.reserve <= 0) {
-      note.textContent = 'Резерв с начала года уже отрицательный (' + fmt(hp.reserve) + ') — расходы превышают выручку. Средний расход: ' + fmt(hp.avg_burn) + '/мес.';
+      note.textContent = 'Резерв уже отрицательный (' + fmt(hp.reserve) + ') — расходы превышают выручку. Средний расход: ' + fmt(hp.avg_burn) + '/мес.';
     } else {
-      note.textContent = hp.months + ' мес. запаса при среднем расходе ' + fmt(hp.avg_burn) + '/мес (резерв с начала года: ' + fmt(hp.reserve) + ').';
+      note.textContent = hp.months + ' мес. запаса при среднем расходе ' + fmt(hp.avg_burn) + '/мес (' + reserveLabel + ': ' + fmt(hp.reserve) + ').';
     }
+  }
+
+  var hpBalanceInputsFilled = false;
+
+  function renderBalance(balance){
+    var info = document.getElementById('hpBalanceInfo');
+    var cashInput = document.getElementById('hpCash');
+    var accInput = document.getElementById('hpAccount');
+    if (!info) return;
+
+    if (balance) {
+      var d = new Date(balance.date);
+      var dateLabel = d.toLocaleDateString('ru-RU');
+      info.textContent = 'Указано на ' + dateLabel + ': касса ' + fmt(balance.cash) + ', счёт ' + fmt(balance.account) + ' (итого ' + fmt(balance.total) + ').';
+      if (!hpBalanceInputsFilled && cashInput && accInput && !cashInput.value && !accInput.value) {
+        cashInput.value = balance.cash;
+        accInput.value = balance.account;
+      }
+    } else {
+      info.textContent = 'Остаток ещё не указан — HP считается по прибыли с начала года.';
+    }
+    hpBalanceInputsFilled = true;
   }
 
   function renderCompare(data){
@@ -909,6 +977,38 @@
     status.textContent = 'Отчёт открывается в браузере — оттуда его можно сохранить.';
     status.className = 'status ok';
   });
+
+  var hpSaveBtn = document.getElementById('hpSaveBtn');
+  if (hpSaveBtn) {
+    hpSaveBtn.addEventListener('click', function(){
+      var status = document.getElementById('hpBalanceStatus');
+      var cashInput = document.getElementById('hpCash');
+      var accInput = document.getElementById('hpAccount');
+      var cash = parseFloat(cashInput.value) || 0;
+      var account = parseFloat(accInput.value) || 0;
+
+      hpSaveBtn.disabled = true;
+      status.textContent = 'Сохраняем...'; status.className = 'status';
+
+      var fd = new FormData();
+      fd.append('init_data', initData);
+      fd.append('pin', pin);
+      fd.append('cash', cash);
+      fd.append('account', account);
+
+      fetch('/api/balance', {method: 'POST', body: fd})
+        .then(function(r){ if (!r.ok) throw new Error(); return r.json(); })
+        .then(function(){
+          status.textContent = 'Сохранено — HP пересчитан.'; status.className = 'status ok';
+          hpSaveBtn.disabled = false;
+          loadSummary();
+        })
+        .catch(function(){
+          status.textContent = 'Не удалось сохранить. Попробуйте ещё раз.'; status.className = 'status err';
+          hpSaveBtn.disabled = false;
+        });
+    });
+  }
 
   var receiptInput = document.getElementById('f_receipt');
   receiptInput.addEventListener('change', function(){
@@ -1143,6 +1243,149 @@
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
       loadHistory();
       loadSummary();
+    }).catch(function(){
+      window.alert('Не удалось удалить запись. Попробуйте ещё раз.');
+    });
+  }
+
+  var lastRecurring = [];
+  var recurringEditRow = null;
+
+  function loadRecurring(){
+    var status = document.getElementById('recurringStatus');
+    status.textContent = 'Загружаем...'; status.className = 'status';
+    fetch('/api/recurring?init_data=' + encodeURIComponent(initData) + '&pin=' + encodeURIComponent(pin))
+      .then(function(r){ if (!r.ok) throw new Error(); return r.json(); })
+      .then(function(data){
+        lastRecurring = data.items || [];
+        renderRecurring(lastRecurring);
+        status.textContent = '';
+      })
+      .catch(function(){
+        status.textContent = 'Не удалось загрузить список.'; status.className = 'status err';
+      });
+  }
+
+  function renderRecurring(items){
+    var list = document.getElementById('recurringList');
+    var count = document.getElementById('recurringCount');
+    var total = document.getElementById('recurringTotal');
+    list.innerHTML = '';
+    count.textContent = items.length;
+    var sum = items.reduce(function(a, it){ return a + (it.amount || 0); }, 0);
+    total.textContent = fmt(sum);
+
+    if (!items.length) {
+      list.innerHTML = '<p class="forecast-note">Список пуст — добавьте регулярный расход формой ниже.</p>';
+      return;
+    }
+
+    items.forEach(function(item){
+      var div = document.createElement('div');
+      div.className = 'hist-item';
+      div.innerHTML =
+        '<div class="top"><span>' + (item.category || 'Без категории') + '</span><span>' + (item.frequency || '') + '</span></div>' +
+        '<div class="desc">' + item.name + '</div>' +
+        (item.note ? '<div class="meta">' + item.note + '</div>' : '') +
+        '<div class="amount">' + fmt(item.amount || 0) + '</div>' +
+        '<div class="hist-actions">' +
+          '<button type="button" data-action="redit" data-row="' + item.row + '">Изменить</button>' +
+          '<button type="button" class="danger" data-action="rdelete" data-row="' + item.row + '">Удалить</button>' +
+        '</div>';
+      list.appendChild(div);
+    });
+
+    list.querySelectorAll('[data-action="redit"]').forEach(function(b){
+      b.addEventListener('click', function(){ startRecurringEdit(parseInt(b.dataset.row, 10)); });
+    });
+    list.querySelectorAll('[data-action="rdelete"]').forEach(function(b){
+      b.addEventListener('click', function(){ confirmRecurringDelete(parseInt(b.dataset.row, 10)); });
+    });
+  }
+
+  function startRecurringEdit(row){
+    var item = lastRecurring.find(function(x){ return x.row === row; });
+    if (!item) return;
+    recurringEditRow = row;
+    document.getElementById('rf_name').value = item.name || '';
+    document.getElementById('rf_category').value = item.category || '';
+    document.getElementById('rf_amount').value = item.amount || '';
+    document.getElementById('rf_frequency').value = item.frequency || '';
+    document.getElementById('rf_note').value = item.note || '';
+    document.getElementById('recurringFormTitle').textContent = 'Изменить регулярный расход';
+    document.getElementById('recurringSaveBtn').textContent = 'Сохранить изменения';
+    document.getElementById('recurringCancelBtn').style.display = 'block';
+    document.getElementById('recurringFormStatus').textContent = '';
+    document.getElementById('recurringFormCard').scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+
+  function resetRecurringForm(){
+    recurringEditRow = null;
+    document.getElementById('rf_name').value = '';
+    document.getElementById('rf_category').value = '';
+    document.getElementById('rf_amount').value = '';
+    document.getElementById('rf_frequency').value = '';
+    document.getElementById('rf_note').value = '';
+    document.getElementById('recurringFormTitle').textContent = 'Добавить регулярный расход';
+    document.getElementById('recurringSaveBtn').textContent = 'Добавить';
+    document.getElementById('recurringCancelBtn').style.display = 'none';
+    document.getElementById('recurringFormStatus').textContent = '';
+  }
+
+  document.getElementById('recurringCancelBtn').addEventListener('click', resetRecurringForm);
+
+  document.getElementById('recurringSaveBtn').addEventListener('click', function(){
+    var name = document.getElementById('rf_name').value.trim();
+    var status = document.getElementById('recurringFormStatus');
+    if (!name) {
+      status.textContent = 'Укажите название.'; status.className = 'status err';
+      return;
+    }
+    var btn = this;
+    btn.disabled = true;
+    status.textContent = 'Сохраняем...'; status.className = 'status';
+
+    var fd = new FormData();
+    fd.append('init_data', initData);
+    fd.append('pin', pin);
+    fd.append('name', name);
+    fd.append('category', document.getElementById('rf_category').value.trim());
+    fd.append('amount', document.getElementById('rf_amount').value || 0);
+    fd.append('frequency', document.getElementById('rf_frequency').value.trim());
+    fd.append('note', document.getElementById('rf_note').value.trim());
+
+    var url = '/api/recurring/add';
+    if (recurringEditRow) {
+      fd.append('row', recurringEditRow);
+      url = '/api/recurring/update';
+    }
+
+    fetch(url, { method: 'POST', body: fd })
+      .then(function(r){ if (!r.ok) throw new Error(); return r.json(); })
+      .then(function(){
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        resetRecurringForm();
+        loadRecurring();
+      })
+      .catch(function(){
+        status.textContent = 'Не удалось сохранить. Попробуйте ещё раз.'; status.className = 'status err';
+      })
+      .finally(function(){ btn.disabled = false; });
+  });
+
+  function confirmRecurringDelete(row){
+    if (!window.confirm('Удалить эту позицию из списка регулярных расходов?')) return;
+    var fd = new FormData();
+    fd.append('init_data', initData);
+    fd.append('pin', pin);
+    fd.append('row', row);
+    fetch('/api/recurring/delete', { method: 'POST', body: fd }).then(function(r){
+      if (!r.ok) throw new Error();
+      return r.json();
+    }).then(function(){
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      if (recurringEditRow === row) resetRecurringForm();
+      loadRecurring();
     }).catch(function(){
       window.alert('Не удалось удалить запись. Попробуйте ещё раз.');
     });
