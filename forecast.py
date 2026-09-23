@@ -24,7 +24,7 @@ def linear_forecast(values_by_month: dict, upcoming_month: int, lookback: int = 
     return max(0.0, intercept + slope * next_x)
 
 
-def build_kpis(revenue: dict, expenses: dict, upcoming_month: int) -> dict:
+def build_kpis(revenue: dict, expenses: dict, upcoming_month: int, balance: dict | None = None) -> dict:
     rev_forecast = linear_forecast(revenue, upcoming_month)
     exp_forecast = linear_forecast(expenses, upcoming_month)
     months_done = sorted(set(revenue) | set(expenses))
@@ -39,21 +39,29 @@ def build_kpis(revenue: dict, expenses: dict, upcoming_month: int) -> dict:
         "profit_forecast": (rev_forecast - exp_forecast) if (rev_forecast is not None and exp_forecast is not None) else None,
         "avg_margin": avg_margin,
         "months_with_data": months_done,
-        "hp": build_hp(revenue, expenses),
+        "hp": build_hp(revenue, expenses, balance=balance),
     }
 
 
-def build_hp(revenue: dict, expenses: dict, lookback: int = 3) -> dict:
+def build_hp(revenue: dict, expenses: dict, lookback: int = 3, balance: dict | None = None) -> dict:
     """"HP" компании — запас прочности в месяцах, как полоска здоровья в
     игре: сколько месяцев компания продержится при текущем среднем темпе
     расходов, если выручка вдруг остановится.
 
-    reserve — накопленная прибыль с начала года (сумма «выручка минус
-    расходы» по всем месяцам, за которые есть данные) — то, что реально
-    отложилось за год. Не то же самое, что остаток на банковском счёте
-    (деньги могли быть потрачены на что-то вне «Расходов», например на
-    закупку оборудования из личных средств), но лучшая оценка, которую
-    можно посчитать без ручного ввода реального баланса.
+    reserve — точка отсчёта:
+    - Если задан `balance` (последний вручную введённый остаток "касса +
+      расчётный счёт на сегодня", см. gsheets.get_latest_balance) —
+      reserve = этот остаток + прибыль (выручка минус расходы) за месяцы
+      ПОСЛЕ месяца, в котором остаток вводили (чтобы не задвоить месяц
+      ввода — его часть уже "внутри" введённого остатка). balance —
+      {"month": int, "total": float}; месяц ожидается в том же году, что
+      и revenue/expenses (иначе, если остаток вводили в прошлом году,
+      считаем его как точку отсчёта на начало текущего — month=0).
+    - Если `balance` не задан — reserve = накопленная прибыль с начала
+      года (сумма «выручка минус расходы» по всем месяцам, за которые
+      есть данные). Это не то же самое, что реальный остаток на счёте
+      (деньги могли быть потрачены/получены мимо таблицы), но лучшая
+      оценка без ручного ввода.
 
     avg_burn — средний расход в месяц за последние `lookback` месяцев (по
     умолчанию 3), с данными.
@@ -63,7 +71,13 @@ def build_hp(revenue: dict, expenses: dict, lookback: int = 3) -> dict:
     резерв уже отрицательный), "unknown" (пока не из чего считать —
     например, ни одного месяца с расходами)."""
     months_done = sorted(set(revenue) | set(expenses))
-    reserve = sum(revenue.get(m, 0.0) - expenses.get(m, 0.0) for m in months_done)
+
+    if balance is not None:
+        baseline_month = balance.get("month", 0)
+        months_after = [m for m in months_done if m > baseline_month]
+        reserve = balance["total"] + sum(revenue.get(m, 0.0) - expenses.get(m, 0.0) for m in months_after)
+    else:
+        reserve = sum(revenue.get(m, 0.0) - expenses.get(m, 0.0) for m in months_done)
 
     burn_months = months_done[-lookback:]
     avg_burn = (sum(expenses.get(m, 0.0) for m in burn_months) / len(burn_months)) if burn_months else 0.0
@@ -84,4 +98,5 @@ def build_hp(revenue: dict, expenses: dict, lookback: int = 3) -> dict:
         "avg_burn": round(avg_burn, 2),
         "months": round(hp_months, 1) if hp_months is not None else None,
         "status": status,
+        "has_balance": balance is not None,
     }
