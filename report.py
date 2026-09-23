@@ -169,19 +169,44 @@ def _hp_section(hp: dict | None, balance: dict | None, styles: dict, h2_style, n
         "kpi_label": ParagraphStyle("HpKpiLabel", parent=styles["Normal"], fontName="DejaVuSans",
                                      fontSize=8, textColor=colors.HexColor("#6e6e73")),
     }
-    flow.append(_kpi_dashboard([
-        (_fmt(hp.get("reserve", 0)), "Резерв, MDL"),
-        (_fmt(hp.get("avg_burn", 0)), "Средний расход/мес, MDL"),
-        (months_str, "Хватит ещё на, мес."),
-    ], hp_kpi_styles))
+
+    # Если остаток введён вручную (касса + расчётный счёт) — показываем
+    # резерв РАЗБИТЫМ на эти два счёта отдельными плитками, а не одной
+    # слитной суммой. Если после ввода остатка прошли ещё месяцы с
+    # прибылью/убытком (hp.reserve учитывает их, а введённый balance —
+    # только снимок на дату ввода), делим фактический hp.reserve на кассу
+    # и счёт В ТОЙ ЖЕ ПРОПОРЦИИ, что и последний введённый остаток — чтобы
+    # сумма двух плиток всегда сходилась с реальным резервом, а не просто
+    # дублировала устаревший снимок. Если остаток не вводили — разбивать
+    # нечего (резерв считается из накопленной прибыли с начала года, без
+    # деления на кассу/счёт), показываем один общий "Резерв".
+    if balance and balance.get("total"):
+        ratio_cash = balance.get("cash", 0) / balance["total"]
+        reserve = hp.get("reserve", 0)
+        reserve_cash = reserve * ratio_cash
+        reserve_account = reserve - reserve_cash
+        tiles = [
+            (_fmt(reserve_cash), "Резерв: касса, MDL"),
+            (_fmt(reserve_account), "Резерв: расчётный счёт, MDL"),
+            (_fmt(hp.get("avg_burn", 0)), "Средний расход/мес, MDL"),
+            (months_str, "Хватит ещё на, мес."),
+        ]
+    else:
+        tiles = [
+            (_fmt(hp.get("reserve", 0)), "Резерв, MDL"),
+            (_fmt(hp.get("avg_burn", 0)), "Средний расход/мес, MDL"),
+            (months_str, "Хватит ещё на, мес."),
+        ]
+    flow.append(_kpi_dashboard(tiles, hp_kpi_styles))
     flow.append(Spacer(1, 8))
 
-    if balance:
+    if balance and balance.get("total"):
         d = balance.get("date", "")
         note = (
             f"Остаток указан на {d}: касса {_fmt(balance.get('cash', 0))} MDL, "
-            f"расчётный счёт {_fmt(balance.get('account', 0))} MDL "
-            f"(итого {_fmt(balance.get('total', 0))} MDL) — резерв HP считается от этой суммы."
+            f"расчётный счёт {_fmt(balance.get('account', 0))} MDL (итого {_fmt(balance.get('total', 0))} MDL). "
+            f"Резерв выше — это факт. остаток плюс прибыль/убыток за месяцы после ввода, разбит на кассу/счёт "
+            f"в той же пропорции, что и последний введённый остаток."
         )
     else:
         note = "Остаток кассы/счёта не введён — резерв HP считается по накопленной прибыли с начала года."
