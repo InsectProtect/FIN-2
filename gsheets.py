@@ -506,3 +506,61 @@ def get_latest_balance() -> dict | None:
         if latest is None or d >= latest["date"]:
             latest = {"date": d, "cash": cash, "account": account, "total": cash + account}
     return latest
+
+
+RECURRING_SHEET_TITLE = "Регулярные расходы"
+_RECURRING_HEADER = ["Название", "Категория", "Сумма, MDL", "Периодичность", "Примечание", "Кто добавил"]
+
+
+def _get_recurring_ws(sh: gspread.Spreadsheet):
+    """Отдельная вкладка со справочным списком регулярных (повторяющихся)
+    расходов — лизинг, зарплаты, связь и т.д. Список редактируется вручную
+    пользователем в приложении (добавить/изменить/удалить), это просто
+    справочник-памятка, а не то, что автоматически попадает в «Расходы»."""
+    try:
+        return sh.worksheet(RECURRING_SHEET_TITLE)
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title=RECURRING_SHEET_TITLE, rows=200, cols=6)
+        ws.append_row(_RECURRING_HEADER, value_input_option="USER_ENTERED")
+        return ws
+
+
+def get_recurring_expenses() -> list[dict]:
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = _get_recurring_ws(sh)
+    rows = ws.get_all_values()[1:]
+    out = []
+    for i, row in enumerate(rows):
+        if len(row) < 1 or not row[0]:
+            continue
+        out.append({
+            "row": i + 2,
+            "name": row[0] if len(row) > 0 else "",
+            "category": row[1] if len(row) > 1 else "",
+            "amount": _to_float(row[2]) if len(row) > 2 else 0.0,
+            "frequency": row[3] if len(row) > 3 else "",
+            "note": row[4] if len(row) > 4 else "",
+            "added_by": row[5] if len(row) > 5 else "",
+        })
+    return out
+
+
+def add_recurring_expense(name: str, category: str, amount: float, frequency: str,
+                           note: str, added_by: str) -> None:
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = _get_recurring_ws(sh)
+    ws.append_row([name, category, amount, frequency, note, added_by], value_input_option="USER_ENTERED")
+
+
+def update_recurring_expense(row: int, name: str, category: str, amount: float,
+                              frequency: str, note: str) -> None:
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = _get_recurring_ws(sh)
+    ws.update(f"A{row}:E{row}", [[name, category, amount, frequency, note]],
+              value_input_option="USER_ENTERED")
+
+
+def delete_recurring_expense(row: int) -> None:
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = _get_recurring_ws(sh)
+    ws.delete_rows(row)
