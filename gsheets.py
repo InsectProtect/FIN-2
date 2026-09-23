@@ -311,14 +311,18 @@ def upsert_bank_expense(period_from: str, period_to: str, month_key: str, amount
     месяцев (например, с начала года) — тогда эта функция вызывается один
     раз на каждый месяц, покрытый выпиской.
 
-    Ищем существующую строку ТОЛЬКО по месяцу (а не по точному тексту
+    Ищем существующие строки ТОЛЬКО по месяцу (а не по точному тексту
     периода документа) — иначе повторная загрузка той же самой выписки, но
     с другим диапазоном дат (например, «01.09–15.09», а через неделю
     «01.09–23.09» — банк отдаёт выписку по факту на сегодня, а не строго
     по календарным месяцам), создавала бы для одного и того же месяца
     ВТОРУЮ строку вместо замены первой — и расходы за месяц задваивались
     бы. Совпадение по месяцу гарантирует, что для месяца всегда ровно одна
-    строка с последней подтверждённой суммой."""
+    строка с последней подтверждённой суммой.
+
+    Если для месяца найдено НЕСКОЛЬКО строк (например, старые дубли,
+    оставшиеся с тех пор, когда сопоставление было по точному периоду) —
+    лишние удаляются автоматически, остаётся и обновляется только одна."""
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     ws = sh.worksheet("Расходы")
     all_rows = ws.get_all_values()
@@ -327,13 +331,15 @@ def upsert_bank_expense(period_from: str, period_to: str, month_key: str, amount
     marker_prefix = f"{_BANK_EXPENSE_PREFIX}{month_key} "
     date = f"{month_key}-01"
 
-    target_row = None
-    for i, row in enumerate(data_rows):
-        if len(row) > 3 and row[2] == "Банковские переводы" and row[3].startswith(marker_prefix):
-            target_row = i + 5
-            break
+    matching_rows = [
+        i + 5 for i, row in enumerate(data_rows)
+        if len(row) > 3 and row[2] == "Банковские переводы" and row[3].startswith(marker_prefix)
+    ]
 
-    if target_row:
+    if matching_rows:
+        target_row = matching_rows[0]
+        for dup_row in sorted(matching_rows[1:], reverse=True):
+            ws.delete_rows(dup_row)
         update_expense(
             row=target_row, date=date, category="Банковские переводы", description=marker,
             account="Перечисление", currency="MDL", amount=amount, rate=1,
@@ -396,26 +402,32 @@ def upsert_bank_income(period_from: str, period_to: str, month_key: str, amount:
     задваивала выручку, а более длинная выписка (за несколько месяцев
     сразу) корректно распределялась по месяцам.
 
-    Ищем существующую строку ТОЛЬКО по месяцу (колонка «Месяц»), а не по
+    Ищем существующие строки ТОЛЬКО по месяцу (колонка «Месяц»), а не по
     точному совпадению периода документа (period_from/period_to) — иначе
     выписка «по факту на сегодня» с растущим диапазоном дат (например,
     сначала «01.09–15.09», через неделю «01.09–23.09») создавала бы для
     одного и того же месяца вторую строку вместо замены первой, и
     поступления задваивались бы. Совпадение по месяцу гарантирует, что на
-    месяц всегда ровно одна строка с последней подтверждённой суммой."""
+    месяц всегда ровно одна строка с последней подтверждённой суммой.
+
+    Если для месяца найдено НЕСКОЛЬКО строк (старые дубли, оставшиеся с
+    тех пор, когда сопоставление было по точному периоду) — лишние
+    удаляются автоматически, остаётся и обновляется только одна."""
     sh = _open(os.environ["SHEET_EXPENSES_NAME"])
     ws = _get_bank_income_ws(sh)
     all_rows = ws.get_all_values()
     data_rows = all_rows[1:]
     date = f"{month_key}-01"
 
-    target_row = None
-    for i, row in enumerate(data_rows):
-        if len(row) >= 4 and row[3] == month_key:
-            target_row = i + 2  # +1 за заголовок, +1 т.к. индексация с 1
-            break
+    matching_rows = [
+        i + 2 for i, row in enumerate(data_rows)  # +1 за заголовок, +1 т.к. индексация с 1
+        if len(row) >= 4 and row[3] == month_key
+    ]
 
-    if target_row:
+    if matching_rows:
+        target_row = matching_rows[0]
+        for dup_row in sorted(matching_rows[1:], reverse=True):
+            ws.delete_rows(dup_row)
         ws.update(f"A{target_row}:E{target_row}", [[date, period_from, period_to, month_key, amount]],
                   value_input_option="USER_ENTERED")
     else:
@@ -443,3 +455,54 @@ def get_bank_income_by_month(year: int) -> dict:
             continue
         out[d.month] += _to_float(row[4])
     return out
+
+
+BALANCE_SHEET_TITLE = "Остаток"
+
+
+def _get_balance_ws(sh: gspread.Spreadsheet):
+    """Отдельная вкладка с вручную введённым остатком денег «на сегодня»
+    (касса + расчётный счёт) — точка отсчёта для расчёта HP («здоровье
+    компании»), вместо (или в дополнение к) накопленной прибыли с начала
+    года по «Расходам»/выручке, которая не видит деньги, потраченные или
+    полученные мимо таблицы. Каждое обновление добавляет новую строку
+    (история остатков), используется последняя по дате."""
+    try:
+        return sh.worksheet(BALANCE_SHEET_TITLE)
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title=BALANCE_SHEET_TITLE, rows=200, cols=5)
+        ws.append_row(["Дата", "Касса, MDL", "Расчётный счёт, MDL", "Итого, MDL", "Кто ввёл"],
+                       value_input_option="USER_ENTERED")
+        return ws
+
+
+def set_balance(date: str, cash: float, account: float, added_by: str) -> None:
+    """date — «ГГГГ-ММ-ДД» (обычно сегодняшняя дата)."""
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    ws = _get_balance_ws(sh)
+    ws.append_row([date, cash, account, cash + account, added_by], value_input_option="USER_ENTERED")
+
+
+def get_latest_balance() -> dict | None:
+    """Последний по дате введённый остаток: {"date": datetime.date,
+    "cash": .., "account": .., "total": ..} — либо None, если ни разу не
+    вводили."""
+    sh = _open(os.environ["SHEET_EXPENSES_NAME"])
+    try:
+        ws = sh.worksheet(BALANCE_SHEET_TITLE)
+    except WorksheetNotFound:
+        return None
+    rows = ws.get_all_values()[1:]
+
+    latest = None
+    for row in rows:
+        if len(row) < 3 or not row[0]:
+            continue
+        d = _parse_date(row[0])
+        if d is None:
+            continue
+        cash = _to_float(row[1])
+        account = _to_float(row[2])
+        if latest is None or d >= latest["date"]:
+            latest = {"date": d, "cash": cash, "account": account, "total": cash + account}
+    return latest
