@@ -238,6 +238,12 @@
       <div class="hp-bar-track"><div class="hp-bar-fill unknown" id="hpBarFill" style="width:4%;"></div></div>
       <p class="forecast-note" id="hpNote">Считаем, как только появятся данные о расходах за год.</p>
 
+      <div class="kpis" style="margin-bottom:0;" id="hpKpis">
+        <div class="kpi"><div class="label">Резерв (запас денег)</div><div class="value" id="hpKpiReserve">—</div></div>
+        <div class="kpi"><div class="label">Средний расход/мес</div><div class="value" id="hpKpiBurn">—</div></div>
+        <div class="kpi"><div class="label">Хватит ещё на, мес.</div><div class="value" id="hpKpiMonths">—</div></div>
+      </div>
+
       <div class="hp-balance">
         <p class="forecast-note" id="hpBalanceInfo" style="margin-top:0;">Остаток ещё не указан — HP считается по прибыли с начала года.</p>
         <div class="hp-balance-row">
@@ -564,7 +570,9 @@
   var months = ["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"];
   var MONTHS_FULL_RU = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
   var lastData = null;
-  var selectedMonth = "all";
+  // По умолчанию открываем текущий месяц (не «Весь год») — чтобы сразу
+  // видеть актуальную картину, а не сумму за год.
+  var selectedMonth = String(new Date().getMonth() + 1);
 
   var monthFilter = document.getElementById('monthFilter');
   MONTHS_FULL_RU.forEach(function(m, i){
@@ -573,6 +581,7 @@
     opt.textContent = m;
     monthFilter.appendChild(opt);
   });
+  monthFilter.value = selectedMonth;
   monthFilter.addEventListener('change', function(){
     selectedMonth = this.value;
     if (lastData) render(lastData);
@@ -765,13 +774,25 @@
     }
     fill.style.width = pct + '%';
 
-    var reserveLabel = hp.has_balance ? 'резерв от введённого остатка' : 'резерв с начала года';
+    var reserveLabel = hp.has_balance ? 'от введённого остатка' : 'с начала года';
+    var reserveTile = document.getElementById('hpKpiReserve');
+    var burnTile = document.getElementById('hpKpiBurn');
+    var monthsTile = document.getElementById('hpKpiMonths');
     if (status === 'unknown') {
       note.textContent = 'Считаем, как только появятся данные о расходах хотя бы за один месяц.';
+      if (reserveTile) reserveTile.textContent = '—';
+      if (burnTile) burnTile.textContent = '—';
+      if (monthsTile) monthsTile.textContent = '—';
     } else if (hp.reserve <= 0) {
-      note.textContent = 'Резерв уже отрицательный (' + fmt(hp.reserve) + ') — расходы превышают выручку. Средний расход: ' + fmt(hp.avg_burn) + '/мес.';
+      note.textContent = 'Резерв (' + reserveLabel + ') уже отрицательный — расходы превышают выручку.';
+      if (reserveTile) reserveTile.textContent = fmt(hp.reserve);
+      if (burnTile) burnTile.textContent = fmt(hp.avg_burn);
+      if (monthsTile) monthsTile.textContent = '0';
     } else {
-      note.textContent = hp.months + ' мес. запаса при среднем расходе ' + fmt(hp.avg_burn) + '/мес (' + reserveLabel + ': ' + fmt(hp.reserve) + ').';
+      note.textContent = 'Резерв ' + reserveLabel + '.';
+      if (reserveTile) reserveTile.textContent = fmt(hp.reserve);
+      if (burnTile) burnTile.textContent = fmt(hp.avg_burn);
+      if (monthsTile) monthsTile.textContent = String(hp.months);
     }
   }
 
