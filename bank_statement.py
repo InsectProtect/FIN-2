@@ -73,6 +73,73 @@ def _month_key(date_ddmmyyyy: str) -> str:
     return f"{y}-{m}"
 
 
+def _month_key_next(month_key: str) -> str:
+    """'2026-01' -> '2026-02', '2026-12' -> '2027-01'."""
+    y, m = (int(x) for x in month_key.split("-"))
+    if m == 12:
+        return f"{y + 1}-01"
+    return f"{y}-{m + 1:02d}"
+
+
+def _longest_consecutive_streak(month_keys: set[str]) -> int:
+    """Длина самой длинной цепочки подряд идущих месяцев в наборе
+    'YYYY-MM'. Например, {2026-01, 2026-02, 2026-04} -> 2 (январь-февраль),
+    а не 3, т.к. март пропущен."""
+    if not month_keys:
+        return 0
+    best = 1
+    for mk in month_keys:
+        if mk in month_keys:
+            # считаем цепочку, только начиная с месяца, у которого нет
+            # предыдущего в наборе — иначе одна и та же цепочка посчитается
+            # несколько раз с разной длиной
+            y, m = (int(x) for x in mk.split("-"))
+            prev = f"{y}-{m - 1:02d}" if m > 1 else f"{y - 1}-12"
+            if prev in month_keys:
+                continue
+            length = 1
+            cur = mk
+            while _month_key_next(cur) in month_keys:
+                cur = _month_key_next(cur)
+                length += 1
+            best = max(best, length)
+    return best
+
+
+def find_recurring_expenses(items: list[dict], min_consecutive_months: int = 2) -> list[dict]:
+    """Ищет расходы (строки из parse_bank_statement()["items"], т.е. только
+    Дебет), которые повторяются у одного и того же контрагента минимум
+    `min_consecutive_months` месяцев ПОДРЯД (не просто N раз за произвольные
+    месяцы) — это и есть «регулярный» расход в бытовом смысле: платёж,
+    который идёт из месяца в месяц без перерыва.
+
+    Возвращает список {"name", "amount" (среднее), "months_count" (сколько
+    всего месяцев встречался), "streak" (длина самой длинной подряд идущей
+    цепочки), "sample_description"} — отсортированный по длине цепочки, от
+    самых регулярных к менее."""
+    by_counterparty = defaultdict(list)
+    for it in items:
+        by_counterparty[it["counterparty"].strip()].append(it)
+
+    out = []
+    for name, rows in by_counterparty.items():
+        months = set(_month_key(r["date"]) for r in rows)
+        streak = _longest_consecutive_streak(months)
+        if streak < min_consecutive_months:
+            continue
+        amounts = [r["amount"] for r in rows]
+        out.append({
+            "name": name,
+            "amount": round(sum(amounts) / len(amounts), 2),
+            "months_count": len(months),
+            "streak": streak,
+            "sample_description": rows[0]["description"],
+        })
+
+    out.sort(key=lambda r: (-r["streak"], -r["months_count"]))
+    return out
+
+
 def _to_float(raw: str) -> float:
     raw = (raw or "").replace(",", ".").replace(" ", "").replace("\xa0", "").strip()
     if not raw:
@@ -188,4 +255,10 @@ def parse_bank_statement(pdf_bytes: bytes) -> dict:
         "excluded_loan_income": round(excluded_loan_income, 2),
         "excluded_loan_count": len(excluded_loan_items),
         "excluded_loan_items": excluded_loan_items,
+        # Расходы одному контрагенту минимум 2 месяца подряд — кандидаты в
+        # "Регулярные расходы", предлагаются пользователю на вкладке
+        # «Сверка с банком» после загрузки выписки (не только из готового
+        # разбора за год — из ЛЮБОЙ загруженной выписки, если она покрывает
+        # 2+ месяцев).
+        "recurring_suggestions": find_recurring_expenses(items),
     }
