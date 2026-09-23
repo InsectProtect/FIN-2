@@ -145,10 +145,28 @@ async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.t
     today = datetime.date.today()
     upcoming = today.month + 1 if today.month < 12 else 1
 
+    # Если пользователь вручную вводил остаток (касса + расчётный счёт) —
+    # используем его как точку отсчёта для HP вместо накопленной прибыли с
+    # начала года (см. forecast.build_hp). Учитываем, только если остаток
+    # введён в ТОМ ЖЕ году, что и запрошенный отчёт — иначе (остаток за
+    # прошлый год) считаем его точкой отсчёта на начало этого года (month=0).
+    latest_balance = gsheets.get_latest_balance()
+    balance_for_hp = None
+    balance_info = None
+    if latest_balance:
+        bal_month = latest_balance["date"].month if latest_balance["date"].year == year else 0
+        balance_for_hp = {"month": bal_month, "total": latest_balance["total"]}
+        balance_info = {
+            "date": latest_balance["date"].isoformat(),
+            "cash": latest_balance["cash"],
+            "account": latest_balance["account"],
+            "total": latest_balance["total"],
+        }
+
     # forecast.py работает с простыми {month: total}, поэтому даём ему
     # только суммарную выручку (наличные + по счёту).
     revenue_total = {m: v["total"] for m, v in revenue.items()}
-    kpis = forecast.build_kpis(revenue_total, expenses, upcoming if today.month < 12 else 13)
+    kpis = forecast.build_kpis(revenue_total, expenses, upcoming if today.month < 12 else 13, balance=balance_for_hp)
 
     months = list(range(1, 13))
     empty = {"cash": 0, "invoice": 0, "total": 0}
@@ -162,7 +180,74 @@ async def api_summary(init_data: str, pin: str = "", year: int = datetime.date.t
         "expenses_by_category": by_cat,
         "revenue_by_service_month": {m: by_service_month.get(m, empty_service_list) for m in months},
         "kpis": kpis,
+        "balance": balance_info,
     })
+
+
+@app.post("/api/balance")
+async def api_set_balance(
+    init_data: str = Form(...),
+    pin: str = Form(""),
+    cash: float = Form(...),
+    account: float = Form(...),
+):
+    user = _authed_user(init_data, pin)
+    added_by = user.get("first_name", str(user["id"]))
+    today = datetime.date.today().isoformat()
+    gsheets.set_balance(date=today, cash=cash, account=account, added_by=added_by)
+    return {"ok": True}
+
+
+@app.get("/api/recurring")
+async def api_get_recurring(init_data: str, pin: str = ""):
+    _authed_user(init_data, pin)
+    items = gsheets.get_recurring_expenses()
+    return {"items": items}
+
+
+@app.post("/api/recurring/add")
+async def api_add_recurring(
+    init_data: str = Form(...),
+    pin: str = Form(""),
+    name: str = Form(...),
+    category: str = Form(""),
+    amount: float = Form(0),
+    frequency: str = Form(""),
+    note: str = Form(""),
+):
+    user = _authed_user(init_data, pin)
+    added_by = user.get("first_name", str(user["id"]))
+    gsheets.add_recurring_expense(name=name, category=category, amount=amount,
+                                   frequency=frequency, note=note, added_by=added_by)
+    return {"ok": True}
+
+
+@app.post("/api/recurring/update")
+async def api_update_recurring(
+    init_data: str = Form(...),
+    pin: str = Form(""),
+    row: int = Form(...),
+    name: str = Form(...),
+    category: str = Form(""),
+    amount: float = Form(0),
+    frequency: str = Form(""),
+    note: str = Form(""),
+):
+    _authed_user(init_data, pin)
+    gsheets.update_recurring_expense(row=row, name=name, category=category, amount=amount,
+                                      frequency=frequency, note=note)
+    return {"ok": True}
+
+
+@app.post("/api/recurring/delete")
+async def api_delete_recurring(
+    init_data: str = Form(...),
+    pin: str = Form(""),
+    row: int = Form(...),
+):
+    _authed_user(init_data, pin)
+    gsheets.delete_recurring_expense(row=row)
+    return {"ok": True}
 
 
 @app.get("/api/report")
